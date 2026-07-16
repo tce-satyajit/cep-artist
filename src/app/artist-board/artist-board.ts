@@ -23,7 +23,6 @@ import {
   PenStyle,
   Point,
   TOOLS,
-  ToolDef,
   ToolId,
 } from './models';
 
@@ -54,13 +53,26 @@ const ICONS: Record<string, string> = {
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
-/** one selectable option inside a dock submenu (pen nib, brush style, shape) */
+/** a dock (toolbar) button, optionally owning a submenu of options */
+interface DockButton {
+  id: string;
+  icon: string;
+  tool: ToolId;
+  members?: ToolId[]; // shape variants (each is its own tool)
+  covers?: ToolId[]; // extra tools this button owns (offered in its submenu)
+  brushStyles?: boolean; // submenu: pen nibs + brush styles
+  eraserOpts?: boolean; // submenu: eraser edge
+  textOpts?: boolean; // submenu: font family + size
+  fillOpts?: boolean; // submenu: flood-fill tolerance
+}
+
+/** one selectable option inside a dock submenu */
 interface SubItem {
   id: string;
   name: string;
   hint: string;
   active: boolean;
-  kind: 'pen' | 'brush' | 'shape';
+  kind: 'pen' | 'brush' | 'shape' | 'eraser' | 'font' | 'size' | 'tol';
 }
 /** a titled group of options within a dock submenu */
 interface SubSection {
@@ -100,20 +112,13 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
    * that tool's OPTIONS — the Pen exposes its nibs, the Brush its styles,
    * Shapes their variants.
    */
-  readonly dock: {
-    id: string;
-    icon: string;
-    tool: ToolId;
-    members?: ToolId[]; // shape variants (each is its own tool)
-    covers?: ToolId[]; // extra tools this button owns (offered in its submenu)
-    brushStyles?: boolean; // submenu shows the pen nibs + brush styles
-  }[] = [
+  readonly dock: DockButton[] = [
     { id: 'move', icon: 'move', tool: 'move' },
     { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true, covers: ['pen'] },
-    { id: 'eraser', icon: 'eraser', tool: 'eraser' },
+    { id: 'eraser', icon: 'eraser', tool: 'eraser', eraserOpts: true },
     { id: 'shapes', icon: 'rect', tool: 'rect', members: ['line', 'rect', 'ellipse'] },
-    { id: 'text', icon: 'text', tool: 'text' },
-    { id: 'fill', icon: 'fill', tool: 'fill' },
+    { id: 'text', icon: 'text', tool: 'text', textOpts: true },
+    { id: 'fill', icon: 'fill', tool: 'fill', fillOpts: true },
   ];
   private lastShape: ToolId = 'rect';
   readonly openGroup = signal<string | null>(null);
@@ -124,16 +129,17 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   readonly fillColor = signal('#f7c6cf');
   readonly outlineOpacity = signal(1);
   readonly fillOpacity = signal(0.56);
-  readonly lineWidth = signal(8);
-  readonly blend = signal<BlendMode>('source-over');
+  readonly lineWidth = signal(10);
   readonly fontSize = signal(42);
   readonly brushStyle = signal<BrushStyle>('ink');
   readonly penStyle = signal<PenStyle>('medium');
+  readonly eraserStyle = signal<'hard' | 'soft'>('hard');
+  readonly fontFamily = signal<'sans' | 'serif' | 'mono'>('sans');
+  readonly fillTolerance = signal(32);
 
   readonly layers = signal<Layer[]>([]);
   readonly activeLayerId = signal<string>('');
   readonly layersPanelOpen = signal(false);
-  readonly settingsOpen = signal(false);
   readonly colorPickerOpen = signal(false);
   readonly moreOpen = signal(false);
 
@@ -154,9 +160,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   readonly sizePct = computed(() => ((this.lineWidth() - 1) / (80 - 1)) * 100);
   readonly opacityPct = computed(() => this.outlineOpacity() * 100);
 
-  readonly activeToolDef = computed<ToolDef>(
-    () => this.tools.find((t) => t.id === this.activeTool()) ?? this.tools[0],
-  );
   readonly activeLayer = computed<Layer | undefined>(
     () => this.layers().find((l) => l.id === this.activeLayerId()),
   );
@@ -407,7 +410,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (this.activePointerId !== null) return;
     this.activePointerId = ev.pointerId;
     // tapping the canvas dismisses transient floating menus
-    if (this.settingsOpen()) this.settingsOpen.set(false);
     if (this.colorPickerOpen()) this.colorPickerOpen.set(false);
     if (this.moreOpen()) this.moreOpen.set(false);
     if (this.openGroup()) this.openGroup.set(null);
@@ -603,16 +605,21 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     // eraser cuts straight into the layer (round eraser tip)
     if (tool === 'eraser') {
       const ctx = layer.ctx;
+      ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.globalAlpha = 1;
       ctx.lineWidth = this.lineWidth();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
+      // soft nib feathers its edge with a blur proportional to the tip size
+      if (this.eraserStyle() === 'soft') {
+        ctx.filter = `blur(${Math.max(2, this.lineWidth() * 0.3)}px)`;
+      }
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
       return;
     }
 
@@ -848,7 +855,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const fill = this.rgbaFromColor(this.fillColor(), this.fillOpacity());
     if (this.colorsEqual(target, fill, 2)) return;
 
-    const tol = 32;
+    const tol = this.fillTolerance();
     const stack = [[sx, sy]];
     const matches = (idx: number) =>
       this.within(data, idx, target, tol);
@@ -963,7 +970,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     ctx.globalAlpha = this.fillOpacity();
     ctx.fillStyle = this.fillColor();
     ctx.textBaseline = 'top';
-    ctx.font = `${this.fontSize()}px "Inter", system-ui, sans-serif`;
+    ctx.font = `${this.fontSize()}px ${this.fontStack()}`;
     ctx.fillText(value, p.x, p.y);
     ctx.globalAlpha = 1;
     const after = this.snapshot(layer);
@@ -1092,27 +1099,21 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   // ---- tool dock + option submenus ----
-  hasSubmenu(b: { members?: ToolId[]; brushStyles?: boolean }): boolean {
-    return !!b.members || !!b.brushStyles;
+  hasSubmenu(b: DockButton): boolean {
+    return this.submenuFor(b).length > 0;
   }
-  buttonActive(b: { tool: ToolId; members?: ToolId[]; covers?: ToolId[] }): boolean {
+  buttonActive(b: DockButton): boolean {
     if (b.members) return b.members.includes(this.activeTool());
     if (b.covers?.includes(this.activeTool())) return true;
     return this.activeTool() === b.tool;
   }
-  buttonIcon(b: { icon: string; members?: ToolId[]; brushStyles?: boolean }): string {
+  buttonIcon(b: DockButton): string {
     if (b.members) return b.members.includes(this.activeTool()) ? this.activeTool() : this.lastShape;
     // the brush button doubles as the pen; reflect whichever is live
     if (b.brushStyles) return this.activeTool() === 'pen' ? 'pen' : 'brush';
     return b.icon;
   }
-  onDockClick(b: {
-    id: string;
-    tool: ToolId;
-    members?: ToolId[];
-    covers?: ToolId[];
-    brushStyles?: boolean;
-  }): void {
+  onDockClick(b: DockButton): void {
     // tapping the ACTIVE tool that has options opens its submenu
     if (this.hasSubmenu(b) && this.buttonActive(b)) {
       this.openGroup.set(this.openGroup() === b.id ? null : b.id);
@@ -1123,7 +1124,64 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.openGroup.set(null);
   }
   /** the titled option groups shown in a dock button's submenu */
-  submenuFor(b: { brushStyles?: boolean; members?: ToolId[] }): SubSection[] {
+  submenuFor(b: DockButton): SubSection[] {
+    if (b.eraserOpts) {
+      return [
+        {
+          title: 'Edge',
+          items: [
+            { id: 'hard', name: 'Hard', hint: 'Crisp, full-strength erase', kind: 'eraser', active: this.eraserStyle() === 'hard' },
+            { id: 'soft', name: 'Soft', hint: 'Feathered, soft-edged erase', kind: 'eraser', active: this.eraserStyle() === 'soft' },
+          ],
+        },
+      ];
+    }
+    if (b.textOpts) {
+      const sizes: { px: number; label: string }[] = [
+        { px: 24, label: 'Small' },
+        { px: 42, label: 'Body' },
+        { px: 72, label: 'Display' },
+      ];
+      return [
+        {
+          title: 'Font',
+          items: [
+            { id: 'sans', name: 'Sans', hint: 'Inter / system sans', kind: 'font', active: this.fontFamily() === 'sans' },
+            { id: 'serif', name: 'Serif', hint: 'Georgia serif', kind: 'font', active: this.fontFamily() === 'serif' },
+            { id: 'mono', name: 'Mono', hint: 'Monospace', kind: 'font', active: this.fontFamily() === 'mono' },
+          ],
+        },
+        {
+          title: 'Size',
+          items: sizes.map((s) => ({
+            id: String(s.px),
+            name: `${s.px} px`,
+            hint: s.label,
+            kind: 'size' as const,
+            active: this.fontSize() === s.px,
+          })),
+        },
+      ];
+    }
+    if (b.fillOpts) {
+      const levels: { tol: number; name: string; hint: string }[] = [
+        { tol: 12, name: 'Low', hint: 'Match very similar colors' },
+        { tol: 32, name: 'Medium', hint: 'Balanced matching' },
+        { tol: 64, name: 'High', hint: 'Match a wide color range' },
+      ];
+      return [
+        {
+          title: 'Tolerance',
+          items: levels.map((l) => ({
+            id: String(l.tol),
+            name: l.name,
+            hint: l.hint,
+            kind: 'tol' as const,
+            active: this.fillTolerance() === l.tol,
+          })),
+        },
+      ];
+    }
     if (b.brushStyles) {
       return [
         {
@@ -1169,9 +1227,37 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   pickSubItem(it: SubItem): void {
-    if (it.kind === 'pen') this.pickPenStyle(it.id as PenStyle);
-    else if (it.kind === 'brush') this.pickBrushStyle(it.id as BrushStyle);
-    else this.pickShape(it.id as ToolId);
+    switch (it.kind) {
+      case 'pen':
+        this.pickPenStyle(it.id as PenStyle);
+        break;
+      case 'brush':
+        this.pickBrushStyle(it.id as BrushStyle);
+        break;
+      case 'shape':
+        this.pickShape(it.id as ToolId);
+        break;
+      case 'eraser':
+        this.eraserStyle.set(it.id as 'hard' | 'soft');
+        this.activeTool.set('eraser');
+        this.openGroup.set(null);
+        break;
+      case 'font':
+        this.fontFamily.set(it.id as 'sans' | 'serif' | 'mono');
+        this.activeTool.set('text');
+        this.openGroup.set(null);
+        break;
+      case 'size':
+        this.fontSize.set(+it.id);
+        this.activeTool.set('text');
+        this.openGroup.set(null);
+        break;
+      case 'tol':
+        this.fillTolerance.set(+it.id);
+        this.activeTool.set('fill');
+        this.openGroup.set(null);
+        break;
+    }
   }
 
   pickShape(id: ToolId): void {
@@ -1188,29 +1274,28 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.activeTool.set('pen');
     this.openGroup.set(null);
   }
-  brushStyleName(): string {
-    return this.brushes.find((b) => b.id === this.brushStyle())?.name ?? '';
+  /** whether this dock button's tool paints a fill (so it needs the slider) */
+  menuHasFillOpacity(b: DockButton): boolean {
+    if (b.fillOpts || b.textOpts) return true;
+    if (b.members) return b.members.some((m) => this.tools.find((t) => t.id === m)?.usesFill);
+    return false;
   }
-  penStyleName(): string {
-    return this.pens.find((p) => p.id === this.penStyle())?.name ?? '';
-  }
-
-  toggleSettings(): void {
-    this.openGroup.set(null);
-    const next = !this.settingsOpen();
-    this.settingsOpen.set(next);
-    if (next) {
-      this.layersPanelOpen.set(false);
-      this.colorPickerOpen.set(false);
-      this.moreOpen.set(false);
+  fontStack(): string {
+    switch (this.fontFamily()) {
+      case 'serif':
+        return 'Georgia, "Times New Roman", serif';
+      case 'mono':
+        return '"SF Mono", ui-monospace, Menlo, monospace';
+      default:
+        return '"Inter", system-ui, -apple-system, sans-serif';
     }
   }
+
   toggleLayers(): void {
     this.openGroup.set(null);
     const next = !this.layersPanelOpen();
     this.layersPanelOpen.set(next);
     if (next) {
-      this.settingsOpen.set(false);
       this.colorPickerOpen.set(false);
       this.moreOpen.set(false);
     }
@@ -1220,7 +1305,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const next = !this.colorPickerOpen();
     this.colorPickerOpen.set(next);
     if (next) {
-      this.settingsOpen.set(false);
       this.layersPanelOpen.set(false);
       this.moreOpen.set(false);
     }
@@ -1230,7 +1314,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const next = !this.moreOpen();
     this.moreOpen.set(next);
     if (next) {
-      this.settingsOpen.set(false);
       this.layersPanelOpen.set(false);
       this.colorPickerOpen.set(false);
     }

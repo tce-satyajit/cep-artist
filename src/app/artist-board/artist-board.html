@@ -18,6 +18,7 @@
         [style.left.px]="textPos().x * zoom() + panX()"
         [style.top.px]="textPos().y * zoom() + panY()"
         [style.font-size.px]="fontSize() * zoom()"
+        [style.font-family]="fontStack()"
         [style.color]="fillColor()"
         [(ngModel)]="textValue"
         (keydown.enter)="commitText()"
@@ -98,6 +99,15 @@
                 }
               </div>
             }
+            @if (menuHasFillOpacity(b)) {
+              <div class="flyout-head">Fill opacity · {{ fillOpacity() * 100 | number:'1.0-0' }}%</div>
+              <input
+                class="flyout-range"
+                type="range" min="0" max="100"
+                [value]="fillOpacity() * 100"
+                (input)="onFillOpacity($any($event.target).value)"
+              />
+            }
           </div>
         }
       </div>
@@ -107,9 +117,6 @@
   <!-- ===== Top bar ===== -->
   <div class="topbar">
     <div class="tb-group">
-      <button class="tb" [class.active]="settingsOpen()" (click)="toggleSettings()" title="Brush studio">
-        <span class="ico" [innerHTML]="iconFor('settings')"></span>
-      </button>
       <button class="tb" [class.active]="layersPanelOpen()" (click)="toggleLayers()" title="Layers">
         <span class="ico" [innerHTML]="iconFor('layers')"></span>
       </button>
@@ -155,61 +162,6 @@
     </div>
   }
 
-  <!-- ===== Brush studio (settings sheet) ===== -->
-  @if (settingsOpen()) {
-    <div class="sheet">
-      <div class="sheet-head">
-        <span>{{ activeToolDef().name }}</span>
-        <button class="sheet-x" (click)="settingsOpen.set(false)">
-          <span class="ico" [innerHTML]="iconFor('close')"></span>
-        </button>
-      </div>
-
-      @if (activeTool() === 'brush') {
-        <div class="sheet-sub">Brush style · {{ brushStyleName() }}</div>
-        <div class="sheet-hint">Change styles from the brush's dock submenu.</div>
-      }
-      @if (activeTool() === 'pen') {
-        <div class="sheet-sub">Pen style · {{ penStyleName() }}</div>
-        <div class="sheet-hint">Change nibs from the brush menu.</div>
-      }
-
-      <div class="sheet-sub">Blend</div>
-      <select class="sheet-select" [value]="blend()" (change)="blend.set($any($event.target).value)">
-        @for (b of blendModes; track b.value) {
-          <option [value]="b.value">{{ b.label }}</option>
-        }
-      </select>
-
-      <div class="sheet-sub">Colors</div>
-      <div class="sheet-colors">
-        @if (activeToolDef().usesOutline || activeTool() === 'eraser' || activeTool() === 'pen' || activeTool() === 'brush') {
-          <label class="color-row">
-            <span>Stroke</span>
-            <input type="color" [value]="outlineColor()" (input)="outlineColor.set($any($event.target).value)" />
-          </label>
-        }
-        @if (activeToolDef().usesFill) {
-          <label class="color-row">
-            <span>Fill</span>
-            <input type="color" [value]="fillColor()" (input)="fillColor.set($any($event.target).value)" />
-          </label>
-          <label class="range-row">
-            <span>Fill opacity</span>
-            <input type="range" min="0" max="100" [value]="fillOpacity() * 100" (input)="onFillOpacity($any($event.target).value)" />
-          </label>
-        }
-      </div>
-
-      @if (activeTool() === 'text') {
-        <div class="sheet-sub">Font size</div>
-        <label class="range-row">
-          <span>{{ fontSize() }} px</span>
-          <input type="range" min="8" max="160" [value]="fontSize()" (input)="fontSize.set(+$any($event.target).value)" />
-        </label>
-      }
-    </div>
-  }
 
   <!-- ===== Layers ===== -->
   @if (layersPanelOpen()) {

@@ -299,6 +299,10 @@
 .style-grid + .flyout-head {
   margin-top: 10px;
 }
+.flyout-range {
+  margin: 2px 4px 4px;
+  width: calc(100% - 8px);
+}
 .tdflyout.styles .brush-card {
   text-align: left;
   padding: 9px 10px;
