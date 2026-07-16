@@ -218,11 +218,12 @@
   z-index: 40;
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   padding: 6px 10px;
   border-radius: 14px;
-  max-width: calc(100% - 120px);
+  max-width: calc(100% - 40px);
   @extend %glass;
 }
 .bottombar .tb {

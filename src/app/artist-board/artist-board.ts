@@ -378,22 +378,29 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.layerBuf.width = this.board.width;
     this.layerBuf.height = this.board.height;
 
-    if (!initial && oldLayers.length) {
-      // re-create layer bitmaps at the new size, preserving content
+    if (!initial && oldLayers.length && oldW > 0 && oldH > 0) {
+      // scale content UNIFORMLY (preserve aspect ratio) so drawings don't
+      // distort when the window's aspect changes. Use the smaller ratio so
+      // everything stays within the new board (no clipping).
+      const k = Math.min(w / oldW, h / oldH);
       const migrated = oldLayers.map((l) => {
         const nl = this.makeLayer(l.name);
         nl.id = l.id;
         nl.visible = l.visible;
         nl.opacity = l.opacity;
         nl.blend = l.blend;
-        // shapes are resolution-independent objects — carry them across as-is
-        nl.objects = l.objects;
+        // scale vector objects by the same factor so they track the raster
+        nl.objects = l.objects.map((o) => this.scaleObject(o, k, k));
         if (l.name === 'Background') {
-          // background is procedural — repaint fresh at the new size instead
-          // of copying the old bitmap (which would leave the grown area blank)
+          // background is procedural — repaint fresh at the new size
           this.paintBackground(nl);
         } else {
-          nl.ctx.drawImage(l.canvas, 0, 0, oldW, oldH, 0, 0, oldW, oldH);
+          // scale the old bitmap uniformly (device px, identity transform so
+          // the dpr scale on the layer ctx isn't applied twice)
+          nl.ctx.save();
+          nl.ctx.setTransform(1, 0, 0, 1, 0, 0);
+          nl.ctx.drawImage(l.canvas, 0, 0, l.canvas.width * k, l.canvas.height * k);
+          nl.ctx.restore();
         }
         return nl;
       });
@@ -404,6 +411,24 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       this.syncHistoryFlags();
       this.render();
     }
+  }
+
+  /** scale an object's geometry by (sx, sy) about the origin */
+  private scaleObject(o: CanvasObject, sx: number, sy: number): CanvasObject {
+    const s = (sx + sy) / 2;
+    if (o.kind === 'shape') {
+      return {
+        ...o,
+        a: { x: o.a.x * sx, y: o.a.y * sy },
+        b: { x: o.b.x * sx, y: o.b.y * sy },
+        strokeWidth: o.strokeWidth * s,
+      };
+    }
+    return {
+      ...o,
+      points: o.points.map((p) => ({ x: p.x * sx, y: p.y * sy })),
+      strokeWidth: o.strokeWidth * s,
+    };
   }
 
   // =========================================================================
