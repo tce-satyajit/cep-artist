@@ -69,7 +69,7 @@
   transform-origin: center;
   touch-action: none;
   background: #fff;
-  border-radius: 30px;
+  border-radius: 16px;
 }
 /* ---------- selection / transform overlay ---------- */
 .sel-box {
@@ -191,13 +191,22 @@
   line-height: 1.1;
 }
 
-/* glass surface mixin-ish */
+/* frosted "liquid glass" surface — bright, blurred, with a specular edge.
+   Tuned for the light stage; adapts to whatever sits behind via backdrop-filter. */
 %glass {
-  background: var(--glass);
-  // -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  // backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid var(--line);
-  // box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55),
+    rgba(255, 255, 255, 0.32)
+  );
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(22px) saturate(180%);
+  //border: 1px solid rgba(255, 255, 255, 0.6);
+  // box-shadow:
+  //   0 14px 40px rgba(20, 24, 40, 0.16),
+  //   0 2px 8px rgba(20, 24, 40, 0.08),
+  //   inset 0 1px 1px rgba(255, 255, 255, 0.9),
+  //   inset 0 -8px 24px rgba(255, 255, 255, 0.18);
 }
 
 /* ---------- bottom-center bar ---------- */
