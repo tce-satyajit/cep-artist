@@ -1,0 +1,15 @@
+/* Global host styles: let the drawing-board web component fill the viewport. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #1b1c26;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  overflow: hidden;
+}
+
+drawing-board {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}

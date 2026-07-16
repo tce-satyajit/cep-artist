@@ -1,0 +1,671 @@
+:host {
+  --bg: #0f1014;
+  --glass: rgba(26, 27, 36, 0.72);
+  --glass-solid: #1b1c26;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --ink: #edeef5;
+  --ink-dim: #9a9cb0;
+  --accent: #f6d34a;
+  --accent-2: #8a7bff;
+  --danger: #ff6b81;
+
+  display: block;
+  width: 100%;
+  height: 100%;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  box-sizing: border-box;
+}
+
+.db-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+.db-root.sliding {
+  cursor: ns-resize;
+}
+
+/* icons */
+.ico {
+  display: inline-flex;
+  pointer-events: none;
+}
+.ico ::ng-deep svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- canvas ---------- */
+.stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 40%, #16171d, #0d0e12 75%);
+}
+.board {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  transform-origin: center;
+  touch-action: none;
+  background: #fff;
+}
+.text-input {
+  position: absolute;
+  z-index: 30;
+  min-width: 120px;
+  border: 1px dashed var(--accent-2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  padding: 2px 4px;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.1;
+}
+
+/* glass surface mixin-ish */
+%glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- bottom-right horizontal sliders ---------- */
+.hsliders {
+  position: absolute;
+  right: 92px;
+  bottom: 20px;
+  z-index: 40;
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  @extend %glass;
+}
+.hslider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hcap {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  min-width: 30px;
+}
+.htrack {
+  position: relative;
+  width: 130px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+.htrack::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.hfill {
+  position: absolute;
+  left: 0;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e0a93f, var(--accent));
+  pointer-events: none;
+}
+.hfill.opacity {
+  background: linear-gradient(90deg, #6a5cff, var(--accent-2));
+}
+.hthumb {
+  position: absolute;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.hslider.on .hthumb {
+  transform: translateX(-50%) scale(1.15);
+}
+.hval {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ---------- tool dock (right) ---------- */
+.tooldock {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 20px;
+  @extend %glass;
+}
+.tdwrap {
+  position: relative;
+  display: flex;
+}
+.tdbtn {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s, transform 0.08s;
+}
+.tdbtn:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+.tdbtn:active {
+  transform: scale(0.92);
+}
+.tdbtn.active {
+  background: var(--accent);
+  color: #17181f;
+}
+/* little corner triangle marking a group that has a submenu */
+.tdchev {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-bottom: 5px solid currentColor;
+  opacity: 0.6;
+}
+.tdflyout {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 16px;
+  @extend %glass;
+  animation: pop 0.14s ease;
+}
+.tdflyout::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: var(--glass);
+  border-right: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+}
+/* brush-style options submenu */
+.tdflyout.styles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 300px;
+  padding: 8px;
+}
+.tdflyout.styles .brush-card {
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  cursor: pointer;
+}
+.tdflyout.styles .brush-card:hover {
+  border-color: var(--accent-2);
+}
+.tdflyout.styles .brush-card.active {
+  border-color: var(--accent);
+  background: rgba(246, 211, 74, 0.14);
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 45;
+  pointer-events: none;
+}
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 16px;
+  @extend %glass;
+  pointer-events: auto;
+}
+.tb {
+  height: 42px;
+  min-width: 42px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s;
+}
+.tb:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+}
+.tb:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.tb.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.swatch-chip {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- popovers ---------- */
+.popover {
+  position: absolute;
+  top: 70px;
+  right: 92px;
+  z-index: 46;
+  padding: 10px;
+  border-radius: 16px;
+  @extend %glass;
+  animation: pop 0.14s ease;
+}
+@keyframes pop {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pop-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.pop-zoom button {
+  width: 40px;
+  height: 34px;
+  border: none;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font-size: 18px;
+  cursor: pointer;
+}
+.pop-zoom span {
+  font-size: 13px;
+  min-width: 52px;
+  text-align: center;
+}
+.pop-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.pop-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.pop-item.danger {
+  color: var(--danger);
+}
+
+.popover.color {
+  width: 210px;
+}
+.color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+.color-row input[type='color'] {
+  width: 54px;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+.sw {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+
+/* ---------- sheets (settings / layers) ---------- */
+.sheet {
+  position: absolute;
+  top: 70px;
+  right: 92px;
+  width: 300px;
+  max-height: calc(100% - 170px);
+  z-index: 46;
+  border-radius: 18px;
+  @extend %glass;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: pop 0.16s ease;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  font-weight: 700;
+  font-size: 15px;
+  border-bottom: 1px solid var(--line);
+}
+.sheet-x {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.sheet-x.add:hover {
+  background: var(--accent-2);
+  color: #fff;
+}
+.sheet-x .ico ::ng-deep svg {
+  width: 18px;
+  height: 18px;
+}
+.sheet-sub {
+  padding: 12px 16px 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.sheet-hint {
+  padding: 0 16px 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.brush-grid {
+  padding: 0 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.brush-card {
+  text-align: left;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.brush-card:hover {
+  border-color: var(--accent-2);
+}
+.brush-card.active {
+  border-color: var(--accent);
+  background: rgba(246, 211, 74, 0.14);
+}
+.brush-name {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+}
+.brush-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-dim);
+  margin-top: 2px;
+  line-height: 1.25;
+}
+.sheet-select,
+.layer-ctrl select {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sheet-select {
+  margin: 0 16px;
+}
+.sheet-colors {
+  padding: 4px 12px 12px;
+}
+.range-row {
+  display: block;
+  padding: 8px 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.range-row span {
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* range inputs (shared) */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  outline: none;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent-2);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- layers ---------- */
+.layer-list {
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.layer.active {
+  border-color: var(--accent);
+  background: rgba(246, 211, 74, 0.12);
+}
+.layer-eye {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.layer-eye .ico ::ng-deep svg {
+  width: 18px;
+  height: 18px;
+}
+.layer-body {
+  flex: 1;
+  min-width: 0;
+}
+.layer-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.layer-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.layer-ctrl select {
+  flex: 0 0 104px;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+.layer-ctrl input[type='range'] {
+  flex: 1;
+  height: 5px;
+}
+.layer-move {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.layer-move button {
+  width: 28px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 9px;
+  display: grid;
+  place-items: center;
+}
+.layer-move button:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.1);
+}
+.layer-move .danger .ico ::ng-deep svg {
+  width: 12px;
+  height: 12px;
+}
+.layer-move .danger:hover {
+  color: var(--danger);
+}
+
+/* ---------- small screens ---------- */
+@media (max-width: 720px) {
+  .tooldock {
+    padding: 6px;
+    gap: 2px;
+  }
+  .tdbtn {
+    width: 42px;
+    height: 42px;
+  }
+  .sheet,
+  .popover {
+    right: 78px;
+    left: 10px;
+    width: auto;
+  }
+  .hsliders {
+    right: 78px;
+    left: 10px;
+    bottom: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .htrack {
+    width: 90px;
+  }
+}

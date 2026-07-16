@@ -1,0 +1,264 @@
+<div class="db-root" [class.sliding]="activeSlider()">
+  <!-- ===== Full-bleed canvas ===== -->
+  <div #stage class="stage" [style.cursor]="cursorForTool()">
+    <canvas
+      #board
+      class="board"
+      [style.transform]="'translate(' + panX() + 'px,' + panY() + 'px) scale(' + zoom() + ')'"
+      (pointerdown)="onPointerDown($event)"
+      (pointermove)="onPointerMove($event)"
+      (pointerup)="onPointerUp($event)"
+      (pointercancel)="onPointerUp($event)"
+      (pointerleave)="onPointerUp($event)"
+    ></canvas>
+
+    @if (textEditing()) {
+      <input
+        class="text-input"
+        [style.left.px]="textPos().x * zoom() + panX()"
+        [style.top.px]="textPos().y * zoom() + panY()"
+        [style.font-size.px]="fontSize() * zoom()"
+        [style.color]="fillColor()"
+        [(ngModel)]="textValue"
+        (keydown.enter)="commitText()"
+        (keydown.escape)="cancelText()"
+        (blur)="commitText()"
+        placeholder="Type…"
+      />
+    }
+  </div>
+
+  <!-- ===== Bottom-right: horizontal Size + Opacity sliders ===== -->
+  <div class="hsliders">
+    <div class="hslider" [class.on]="activeSlider() === 'size'">
+      <span class="hcap">Size</span>
+      <div class="htrack" (pointerdown)="sliderDown('size', $event)">
+        <div class="hfill" [style.width.%]="sizePct()"></div>
+        <div class="hthumb" [style.left.%]="sizePct()"></div>
+      </div>
+      <span class="hval">{{ lineWidth() }}px</span>
+    </div>
+    <div class="hslider" [class.on]="activeSlider() === 'opacity'">
+      <span class="hcap">Opacity</span>
+      <div class="htrack" (pointerdown)="sliderDown('opacity', $event)">
+        <div class="hfill opacity" [style.width.%]="opacityPct()"></div>
+        <div class="hthumb" [style.left.%]="opacityPct()"></div>
+      </div>
+      <span class="hval">{{ opacityPct() | number:'1.0-0' }}%</span>
+    </div>
+  </div>
+
+  <!-- ===== Tool dock (right) ===== -->
+  <div class="tooldock">
+    @for (b of dock; track b.id) {
+      <div class="tdwrap">
+        <button
+          class="tdbtn"
+          [class.active]="buttonActive(b)"
+          (click)="onDockClick(b)"
+          [attr.aria-label]="b.id"
+        >
+          <span class="ico" [innerHTML]="iconFor(buttonIcon(b))"></span>
+          @if (hasSubmenu(b)) { <span class="tdchev"></span> }
+        </button>
+
+        @if (openGroup() === b.id) {
+          @if (b.brushStyles) {
+            <!-- brush options: the styles -->
+            <div class="tdflyout styles">
+              @for (s of brushes; track s.id) {
+                <button
+                  class="brush-card"
+                  [class.active]="brushStyle() === s.id"
+                  (click)="pickBrushStyle(s.id)"
+                  [title]="s.hint"
+                >
+                  <span class="brush-name">{{ s.name }}</span>
+                  <span class="brush-hint">{{ s.hint }}</span>
+                </button>
+              }
+            </div>
+          } @else {
+            <!-- shape variants -->
+            <div class="tdflyout">
+              @for (m of b.members; track m) {
+                <button
+                  class="tdbtn"
+                  [class.active]="activeTool() === m"
+                  (click)="pickShape(m)"
+                  [title]="toolName(m)"
+                >
+                  <span class="ico" [innerHTML]="iconFor(m)"></span>
+                </button>
+              }
+            </div>
+          }
+        }
+      </div>
+    }
+  </div>
+
+  <!-- ===== Top bar ===== -->
+  <div class="topbar">
+    <div class="tb-group">
+      <button class="tb" (click)="undo()" [disabled]="!canUndo()" title="Undo (⌘Z)">
+        <span class="ico" [innerHTML]="iconFor('undo')"></span>
+      </button>
+      <button class="tb" (click)="redo()" [disabled]="!canRedo()" title="Redo (⌘⇧Z)">
+        <span class="ico" [innerHTML]="iconFor('redo')"></span>
+      </button>
+    </div>
+
+    <div class="tb-group">
+      <button class="tb swatch-btn" (click)="toggleColor()" title="Color">
+        <span class="swatch-chip" [style.background]="outlineColor()"></span>
+      </button>
+      <button class="tb" [class.active]="settingsOpen()" (click)="toggleSettings()" title="Brush studio">
+        <span class="ico" [innerHTML]="iconFor('settings')"></span>
+      </button>
+      <button class="tb" [class.active]="layersPanelOpen()" (click)="toggleLayers()" title="Layers">
+        <span class="ico" [innerHTML]="iconFor('layers')"></span>
+      </button>
+      <button class="tb" (click)="exportPng()" title="Export PNG">
+        <span class="ico" [innerHTML]="iconFor('download')"></span>
+      </button>
+      <button class="tb" [class.active]="moreOpen()" (click)="toggleMore()" title="More">
+        <span class="ico" [innerHTML]="iconFor('more')"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== More menu ===== -->
+  @if (moreOpen()) {
+    <div class="popover more">
+      <div class="pop-zoom">
+        <button (click)="zoomBy(1/1.2)">−</button>
+        <span>{{ zoom() * 100 | number:'1.0-0' }}%</span>
+        <button (click)="zoomBy(1.2)">＋</button>
+      </div>
+      <button class="pop-item" (click)="resetView(); moreOpen.set(false)">Reset view</button>
+      <button class="pop-item" (click)="clearActiveLayer(); moreOpen.set(false)">Clear layer</button>
+      <button class="pop-item danger" (click)="clearAll(); moreOpen.set(false)">Clear canvas</button>
+    </div>
+  }
+
+  <!-- ===== Color popover ===== -->
+  @if (colorPickerOpen()) {
+    <div class="popover color">
+      <label class="color-row">
+        <span>Stroke</span>
+        <input type="color" [value]="outlineColor()" (input)="outlineColor.set($any($event.target).value)" />
+      </label>
+      <label class="color-row">
+        <span>Fill</span>
+        <input type="color" [value]="fillColor()" (input)="fillColor.set($any($event.target).value)" />
+      </label>
+      <div class="swatches">
+        @for (c of ['#101114','#ffffff','#e5484d','#f5a524','#f6d34a','#30a46c','#3b82f6','#8b5cf6','#ec4899','#8a5a3c']; track c) {
+          <button class="sw" [style.background]="c" (click)="outlineColor.set(c)"></button>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ===== Brush studio (settings sheet) ===== -->
+  @if (settingsOpen()) {
+    <div class="sheet">
+      <div class="sheet-head">
+        <span>{{ activeToolDef().name }}</span>
+        <button class="sheet-x" (click)="settingsOpen.set(false)">
+          <span class="ico" [innerHTML]="iconFor('close')"></span>
+        </button>
+      </div>
+
+      @if (activeTool() === 'brush') {
+        <div class="sheet-sub">Brush style · {{ brushStyleName() }}</div>
+        <div class="sheet-hint">Change styles from the brush's dock submenu.</div>
+      }
+
+      <div class="sheet-sub">Blend</div>
+      <select class="sheet-select" [value]="blend()" (change)="blend.set($any($event.target).value)">
+        @for (b of blendModes; track b.value) {
+          <option [value]="b.value">{{ b.label }}</option>
+        }
+      </select>
+
+      <div class="sheet-sub">Colors</div>
+      <div class="sheet-colors">
+        @if (activeToolDef().usesOutline || activeTool() === 'eraser' || activeTool() === 'pen' || activeTool() === 'brush') {
+          <label class="color-row">
+            <span>Stroke</span>
+            <input type="color" [value]="outlineColor()" (input)="outlineColor.set($any($event.target).value)" />
+          </label>
+        }
+        @if (activeToolDef().usesFill) {
+          <label class="color-row">
+            <span>Fill</span>
+            <input type="color" [value]="fillColor()" (input)="fillColor.set($any($event.target).value)" />
+          </label>
+          <label class="range-row">
+            <span>Fill opacity</span>
+            <input type="range" min="0" max="100" [value]="fillOpacity() * 100" (input)="onFillOpacity($any($event.target).value)" />
+          </label>
+        }
+      </div>
+
+      @if (activeTool() === 'text') {
+        <div class="sheet-sub">Font size</div>
+        <label class="range-row">
+          <span>{{ fontSize() }} px</span>
+          <input type="range" min="8" max="160" [value]="fontSize()" (input)="fontSize.set(+$any($event.target).value)" />
+        </label>
+      }
+    </div>
+  }
+
+  <!-- ===== Layers ===== -->
+  @if (layersPanelOpen()) {
+    <div class="sheet layers">
+      <div class="sheet-head">
+        <span>Layers</span>
+        <button class="sheet-x add" (click)="addLayer()" title="Add layer">
+          <span class="ico" [innerHTML]="iconFor('plus')"></span>
+        </button>
+      </div>
+      <div class="layer-list">
+        @for (l of layersReversed(); track l.id) {
+          <div class="layer" [class.active]="l.id === activeLayerId()" (click)="selectLayer(l.id)">
+            <button class="layer-eye" (click)="toggleLayerVisible(l.id); $event.stopPropagation()" [title]="l.visible ? 'Hide' : 'Show'">
+              <span class="ico" [innerHTML]="iconFor(l.visible ? 'eye' : 'eyeoff')"></span>
+            </button>
+            <div class="layer-body">
+              <div class="layer-name">{{ l.name }}</div>
+              <div class="layer-ctrl">
+                <select
+                  [value]="l.blend"
+                  (click)="$event.stopPropagation()"
+                  (change)="setLayerBlend(l.id, $any($event.target).value)"
+                >
+                  @for (b of blendModes; track b.value) {
+                    <option [value]="b.value">{{ b.label }}</option>
+                  }
+                </select>
+                <input
+                  type="range" min="0" max="100"
+                  [value]="l.opacity * 100"
+                  (click)="$event.stopPropagation()"
+                  (input)="setLayerOpacity(l.id, +$any($event.target).value / 100)"
+                  title="Opacity"
+                />
+              </div>
+            </div>
+            <div class="layer-move">
+              <button (click)="moveLayer(l.id, 1); $event.stopPropagation()" title="Up">▲</button>
+              <button (click)="moveLayer(l.id, -1); $event.stopPropagation()" title="Down">▼</button>
+              <button class="danger" (click)="deleteLayer(l.id); $event.stopPropagation()" title="Delete">
+                <span class="ico" [innerHTML]="iconFor('close')"></span>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>
