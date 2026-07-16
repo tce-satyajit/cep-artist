@@ -354,7 +354,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const rect = this.stageRef.nativeElement.getBoundingClientRect();
     // inset the board by an equal margin on all sides, wide enough for the
     // floating tool panels (dock / top / bottom bars) to sit in the gap.
-    const pad = 96;
+    const pad = 10;
     const w = Math.max(1, Math.floor(rect.width - pad * 2));
     const h = Math.max(1, Math.floor(rect.height - pad * 2));
     if (!initial && w === this.width && h === this.height) return;

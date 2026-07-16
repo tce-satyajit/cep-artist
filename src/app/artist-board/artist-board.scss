@@ -58,13 +58,14 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 50% 40%, #ffffff, #e8e8e8 75%);
+  //background: radial-gradient(circle at 50% 40%, #ffffff, #e8e8e8 75%);
+  background: var(--bg);
 }
 .board {
   position: absolute;
   inset: 0;
   margin: auto;
-  // box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
   transform-origin: center;
   touch-action: none;
   background: #fff;
@@ -192,7 +193,7 @@
 
 /* glass surface mixin-ish */
 %glass {
-  //background: var(--glass);
+  background: var(--glass);
   // -webkit-backdrop-filter: blur(20px) saturate(1.4);
   // backdrop-filter: blur(20px) saturate(1.4);
   border: 1px solid var(--line);
