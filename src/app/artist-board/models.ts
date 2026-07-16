@@ -71,7 +71,6 @@ export const TOOLS: ToolDef[] = [
   { id: 'rect', name: 'Rectangle', hint: 'Click-drag to draw a rectangle', shortcut: 'R', usesFill: true, usesOutline: true, usesLineWidth: true },
   { id: 'ellipse', name: 'Ellipse', hint: 'Click-drag to draw an ellipse', shortcut: 'O', usesFill: true, usesOutline: true, usesLineWidth: true },
   { id: 'text', name: 'Text', hint: 'Click to place text', shortcut: 'T', usesFill: true, usesOutline: false, usesLineWidth: false },
-  { id: 'fill', name: 'Fill Bucket', hint: 'Click to flood-fill a region', shortcut: 'G', usesFill: true, usesOutline: false, usesLineWidth: false },
   { id: 'eyedropper', name: 'Eyedropper', hint: 'Click to sample a color', shortcut: 'I', usesFill: false, usesOutline: false, usesLineWidth: false },
 ];
 

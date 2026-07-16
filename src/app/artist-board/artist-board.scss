@@ -58,16 +58,17 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 50% 40%, #16171d, #0d0e12 75%);
+  background: radial-gradient(circle at 50% 40%, #ffffff, #e8e8e8 75%);
 }
 .board {
   position: absolute;
   inset: 0;
   margin: auto;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  // box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
   transform-origin: center;
   touch-action: none;
   background: #fff;
+  border-radius: 30px;
 }
 /* ---------- selection / transform overlay ---------- */
 .sel-box {
@@ -101,7 +102,7 @@
 .sel-rotate {
   position: absolute;
   left: 50%;
-  top: -28px;
+  bottom: -30px;
   width: 13px;
   height: 13px;
   margin-left: -6.5px;
@@ -114,7 +115,7 @@
 .sel-del {
   position: absolute;
   right: -16px;
-  top: -36px;
+  bottom: -38px;
   width: 28px;
   height: 28px;
   border: none;
@@ -127,6 +128,54 @@
   place-items: center;
 }
 .sel-del .ico ::ng-deep svg { width: 15px; height: 15px; }
+
+/* selection properties toolbar (context menu on select) */
+.sel-props {
+  position: absolute;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--glass-solid);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+  color: #edeef5;
+  pointer-events: auto;
+}
+.sp-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.sp-cap {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #9a9cb0;
+}
+.sp-item input[type='color'] {
+  width: 30px;
+  height: 26px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.sp-size input[type='range'] {
+  width: 92px;
+  height: 5px;
+}
+.sp-val {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: right;
+  color: #edeef5;
+}
 
 .text-input {
   position: absolute;
@@ -286,8 +335,12 @@
   transform: scale(0.92);
 }
 .tdbtn.active {
-  background: var(--accent);
+  //background: var(--accent);
+//   background: #2A7B9B;
+// background: linear-gradient(90deg, rgba(42, 123, 155, 1) 0%, rgba(87, 199, 133, 1) 50%, rgba(237, 221, 83, 1) 100%);
   color: #17181f;
+  border: 1px solid var(--accent-2);
+
 }
 /* little corner triangle marking a group that has a submenu */
 .tdchev {

@@ -49,6 +49,33 @@
         </button>
       </div>
     }
+
+    <!-- ===== Selection properties toolbar ===== -->
+    @if (selPanel(); as sp) {
+      <div class="sel-props" [style.left.px]="sp.left" [style.top.px]="sp.top" (pointerdown)="$event.stopPropagation()">
+        @if (selIsShape()) {
+          <label class="sp-item" title="Fill">
+            <span class="sp-cap">Fill</span>
+            <input type="color" [value]="selFill()"
+              (input)="setSelFill($any($event.target).value, false)"
+              (change)="setSelFill($any($event.target).value, true)" />
+          </label>
+        }
+        <label class="sp-item" title="Stroke">
+          <span class="sp-cap">Stroke</span>
+          <input type="color" [value]="selStroke()"
+            (input)="setSelStroke($any($event.target).value, false)"
+            (change)="setSelStroke($any($event.target).value, true)" />
+        </label>
+        <label class="sp-item sp-size" title="Stroke size">
+          <span class="sp-cap">Size</span>
+          <input type="range" min="1" max="80" [value]="selStrokeWidth()"
+            (input)="setSelStrokeWidth(+$any($event.target).value, false)"
+            (change)="setSelStrokeWidth(+$any($event.target).value, true)" />
+          <span class="sp-val">{{ selStrokeWidth() }}</span>
+        </label>
+      </div>
+    }
   </div>
 
   <!-- ===== Bottom-center bar: undo/redo · color · Size + Opacity ===== -->

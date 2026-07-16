@@ -24,7 +24,6 @@ export interface DockButton {
   brushStyles?: boolean; // submenu: pen nibs + brush styles
   eraserOpts?: boolean; // submenu: eraser edge
   textOpts?: boolean; // submenu: font family + size
-  fillOpts?: boolean; // submenu: flood-fill tolerance
 }
 
 /** one selectable option inside a dock submenu */
@@ -33,7 +32,7 @@ export interface SubItem {
   name: string;
   hint: string;
   active: boolean;
-  kind: 'pen' | 'brush' | 'shape' | 'eraser' | 'font' | 'size' | 'tol';
+  kind: 'pen' | 'brush' | 'shape' | 'eraser' | 'font' | 'size';
 }
 /** a titled group of options within a dock submenu */
 export interface SubSection {
@@ -74,7 +73,6 @@ export class ArtistStore {
     { id: 'eraser', icon: 'eraser', tool: 'eraser', eraserOpts: true },
     { id: 'shapes', icon: 'rect', tool: 'rect', members: ['line', 'rect', 'ellipse'] },
     { id: 'text', icon: 'text', tool: 'text', textOpts: true },
-    { id: 'fill', icon: 'fill', tool: 'fill', fillOpts: true },
   ];
   private lastShape: ToolId = 'rect';
 
@@ -98,7 +96,6 @@ export class ArtistStore {
   readonly penStyle = signal<PenStyle>('medium');
   readonly eraserStyle = signal<'hard' | 'soft'>('hard');
   readonly fontFamily = signal<'sans' | 'serif' | 'mono'>('sans');
-  readonly fillTolerance = signal(32);
   readonly openGroup = signal<string | null>(null);
   /** id of the object selected by the select tool, or null */
   readonly selectedId = signal<string | null>(null);
@@ -210,25 +207,6 @@ export class ArtistStore {
         },
       ];
     }
-    if (b.fillOpts) {
-      const levels: { tol: number; name: string; hint: string }[] = [
-        { tol: 12, name: 'Low', hint: 'Match very similar colors' },
-        { tol: 32, name: 'Medium', hint: 'Balanced matching' },
-        { tol: 64, name: 'High', hint: 'Match a wide color range' },
-      ];
-      return [
-        {
-          title: 'Tolerance',
-          items: levels.map((l) => ({
-            id: String(l.tol),
-            name: l.name,
-            hint: l.hint,
-            kind: 'tol' as const,
-            active: this.fillTolerance() === l.tol,
-          })),
-        },
-      ];
-    }
     if (b.brushStyles) {
       return [
         {
@@ -299,11 +277,6 @@ export class ArtistStore {
         this.activeTool.set('text');
         this.openGroup.set(null);
         break;
-      case 'tol':
-        this.fillTolerance.set(+it.id);
-        this.activeTool.set('fill');
-        this.openGroup.set(null);
-        break;
     }
   }
 
@@ -324,7 +297,7 @@ export class ArtistStore {
 
   /** whether this dock button's tool paints a fill (so it needs the slider) */
   menuHasFillOpacity(b: DockButton): boolean {
-    if (b.fillOpts || b.textOpts) return true;
+    if (b.textOpts) return true;
     if (b.members) return b.members.some((m) => this.tools.find((t) => t.id === m)?.usesFill);
     return false;
   }

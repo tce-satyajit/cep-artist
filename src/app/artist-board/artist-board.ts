@@ -11,7 +11,6 @@ import {
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { paintBrushSegment } from './engine/brushes';
-import { floodFill, rgbaFromColor } from './engine/flood-fill';
 import { BgTexture, paintTexture } from './engine/textures';
 import {
   drawObject,
@@ -20,7 +19,6 @@ import {
   objectBounds,
   objectCenter,
   penWidthFor,
-  pointInShape,
   ShapeTool,
 } from './engine/shapes';
 import { ArtistStore } from './store/artist-store';
@@ -30,7 +28,6 @@ import {
   HistoryEntry,
   Layer,
   LayerState,
-  PathObject,
   Point,
   ShapeObject,
 } from './models';
@@ -355,8 +352,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // =========================================================================
   private resizeToStage(initial: boolean): void {
     const rect = this.stageRef.nativeElement.getBoundingClientRect();
-    const w = Math.max(1, Math.floor(rect.width));
-    const h = Math.max(1, Math.floor(rect.height));
+    // inset the board by an equal margin on all sides, wide enough for the
+    // floating tool panels (dock / top / bottom bars) to sit in the gap.
+    const pad = 96;
+    const w = Math.max(1, Math.floor(rect.width - pad * 2));
+    const h = Math.max(1, Math.floor(rect.height - pad * 2));
     if (!initial && w === this.width && h === this.height) return;
 
     const oldLayers = this.store.layers();
@@ -468,21 +468,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.points = [p];
     this.snapshotBefore = this.snapshot(layer);
 
-    if (tool === 'fill') {
-      // a click on a retained shape fills that whole shape (no gaps to leak
-      // through); otherwise fall back to a pixel flood fill.
-      const shape = this.hitTestShape(layer, p);
-      if (shape) {
-        shape.fill = this.store.fillColor();
-        shape.fillOpacity = this.store.fillOpacity();
-      } else {
-        this.floodFill(layer, p);
-      }
-      this.commitStroke(layer);
-      this.drawing = false;
-      return;
-    }
-
     if (tool === 'pen' || tool === 'brush') {
       this.initStrokeBuffer();
       this.prevMid = p;
@@ -586,12 +571,14 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       // shapes are retained as objects (not baked into the raster) so they can
       // be selected, filled, and transformed as a whole later.
       layer.objects = [...layer.objects, this.makeShape(tool, this.start, p)];
-    } else if (tool === 'pen') {
-      // pen strokes are retained as path objects too (so they're selectable).
-      // Discard the live preview buffer so commitStroke doesn't bake it in.
-      layer.objects = [...layer.objects, this.makePath(this.points)];
-      this.strokeBuffer = null;
-      this.sbctx = null;
+    } else if (tool === 'pen' && this.sbctx) {
+      // pen is raster (so the natural eraser can erase it): finish the smoothed
+      // curve at the true last point, then commitStroke bakes it into the layer.
+      const ctx = this.sbctx;
+      ctx.beginPath();
+      ctx.moveTo(this.prevMid.x, this.prevMid.y);
+      ctx.lineTo(this.last.x, this.last.y);
+      ctx.stroke();
     }
     this.commitStroke(layer);
     this.drawing = false;
@@ -697,28 +684,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     };
   }
 
-  private makePath(points: Point[]): PathObject {
-    return {
-      kind: 'path',
-      id: nextId(),
-      points: points.map((p) => ({ ...p })),
-      stroke: this.store.outlineColor(),
-      strokeWidth: this.store.lineWidth(),
-      strokeOpacity: this.store.outlineOpacity(),
-      penStyle: this.store.penStyle(),
-      rotation: 0,
-    };
-  }
-
-  /** topmost fillable shape (rect/ellipse) under the point, or null */
-  private hitTestShape(layer: Layer, p: Point): ShapeObject | null {
-    for (let i = layer.objects.length - 1; i >= 0; i--) {
-      const o = layer.objects[i];
-      if (o.kind !== 'shape' || o.tool === 'line') continue; // no fillable region
-      if (pointInShape(o, p)) return o;
-    }
-    return null;
-  }
 
   /** topmost object under the point (for the select tool), or null */
   private objectAt(layer: Layer, p: Point): CanvasObject | null {
@@ -726,18 +691,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       if (hitTestObject(layer.objects[i], p)) return layer.objects[i];
     }
     return null;
-  }
-
-  private floodFill(layer: Layer, p: Point): void {
-    const ctx = layer.ctx;
-    const W = layer.canvas.width;
-    const H = layer.canvas.height;
-    const sx = Math.floor(p.x * this.dpr);
-    const sy = Math.floor(p.y * this.dpr);
-    if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
-    const img = ctx.getImageData(0, 0, W, H);
-    floodFill(img, sx, sy, rgbaFromColor(this.store.fillColor(), this.store.fillOpacity()), this.store.fillTolerance());
-    ctx.putImageData(img, 0, 0);
   }
 
   // =========================================================================
@@ -1072,7 +1025,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const o = x.obj;
 
     if (x.mode === 'rotate') {
-      o.rotation = Math.atan2(pointer.y - x.center.y, pointer.x - x.center.x) + Math.PI / 2;
+      // rotate handle sits BELOW the box (rest angle +90°), so subtract it
+      o.rotation = Math.atan2(pointer.y - x.center.y, pointer.x - x.center.x) - Math.PI / 2;
     } else if (x.mode === 'move') {
       const dx = pointer.x - x.startPointer.x;
       const dy = pointer.y - x.startPointer.y;
@@ -1119,6 +1073,62 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (!x || !x.moved) return;
     const after = this.snapshot(x.layer);
     this.pushHistory({ layerId: x.layer.id, before: x.before, after });
+  }
+
+  // =========================================================================
+  // Selection properties (fill / stroke / size) — the context toolbar
+  // =========================================================================
+  private selEditBefore: LayerState | null = null;
+
+  /** screen-space anchor (stage px) for the selection properties toolbar */
+  selPanel(): { left: number; top: number } | null {
+    const sb = this.selBox();
+    if (!sb) return null;
+    return { left: sb.left, top: Math.max(8, sb.top - 52) };
+  }
+
+  selIsShape(): boolean {
+    return this.selectedObject()?.obj.kind === 'shape';
+  }
+  selFill(): string {
+    const o = this.selectedObject()?.obj;
+    return o?.kind === 'shape' ? o.fill : '#000000';
+  }
+  selStroke(): string {
+    return this.selectedObject()?.obj.stroke ?? '#000000';
+  }
+  selStrokeWidth(): number {
+    return this.selectedObject()?.obj.strokeWidth ?? 1;
+  }
+
+  /** mutate the selected object; `commit` pushes an undo step on final value */
+  private editSelected(mutate: (o: CanvasObject) => void, commit: boolean): void {
+    const sel = this.selectedObject();
+    if (!sel) return;
+    if (!this.selEditBefore) this.selEditBefore = this.snapshot(sel.layer);
+    mutate(sel.obj);
+    this.xformTick.update((v) => v + 1);
+    this.render();
+    if (commit && this.selEditBefore) {
+      this.pushHistory({ layerId: sel.layer.id, before: this.selEditBefore, after: this.snapshot(sel.layer) });
+      this.selEditBefore = null;
+    }
+  }
+
+  setSelFill(color: string, commit: boolean): void {
+    this.editSelected((o) => {
+      if (o.kind === 'shape') o.fill = color;
+    }, commit);
+  }
+  setSelStroke(color: string, commit: boolean): void {
+    this.editSelected((o) => {
+      o.stroke = color;
+    }, commit);
+  }
+  setSelStrokeWidth(w: number, commit: boolean): void {
+    this.editSelected((o) => {
+      o.strokeWidth = w;
+    }, commit);
   }
 
   // ---- keyboard shortcuts ----
