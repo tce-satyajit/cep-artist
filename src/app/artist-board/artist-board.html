@@ -80,51 +80,25 @@
         </button>
 
         @if (openGroup() === b.id) {
-          @if (b.brushStyles) {
-            <!-- brush options: the styles -->
-            <div class="tdflyout styles">
-              @for (s of brushes; track s.id) {
-                <button
-                  class="brush-card"
-                  [class.active]="brushStyle() === s.id"
-                  (click)="pickBrushStyle(s.id)"
-                  [title]="s.hint"
-                >
-                  <span class="brush-name">{{ s.name }}</span>
-                  <span class="brush-hint">{{ s.hint }}</span>
-                </button>
-              }
-            </div>
-          } @else if (b.penStyles) {
-            <!-- pen options: the nibs -->
-            <div class="tdflyout styles">
-              @for (s of pens; track s.id) {
-                <button
-                  class="brush-card"
-                  [class.active]="penStyle() === s.id"
-                  (click)="pickPenStyle(s.id)"
-                  [title]="s.hint"
-                >
-                  <span class="brush-name">{{ s.name }}</span>
-                  <span class="brush-hint">{{ s.hint }}</span>
-                </button>
-              }
-            </div>
-          } @else {
-            <!-- shape variants -->
-            <div class="tdflyout">
-              @for (m of b.members; track m) {
-                <button
-                  class="tdbtn"
-                  [class.active]="activeTool() === m"
-                  (click)="pickShape(m)"
-                  [title]="toolName(m)"
-                >
-                  <span class="ico" [innerHTML]="iconFor(m)"></span>
-                </button>
-              }
-            </div>
-          }
+          <!-- one common submenu system for every dock button -->
+          <div class="tdflyout styles">
+            @for (sec of submenuFor(b); track sec.title) {
+              <div class="flyout-head">{{ sec.title }}</div>
+              <div class="style-grid">
+                @for (it of sec.items; track it.id) {
+                  <button
+                    class="brush-card"
+                    [class.active]="it.active"
+                    (click)="pickSubItem(it)"
+                    [title]="it.hint"
+                  >
+                    <span class="brush-name">{{ it.name }}</span>
+                    <span class="brush-hint">{{ it.hint }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
         }
       </div>
     }
@@ -197,7 +171,7 @@
       }
       @if (activeTool() === 'pen') {
         <div class="sheet-sub">Pen style · {{ penStyleName() }}</div>
-        <div class="sheet-hint">Change nibs from the pen's dock submenu.</div>
+        <div class="sheet-hint">Change nibs from the brush menu.</div>
       }
 
       <div class="sheet-sub">Blend</div>

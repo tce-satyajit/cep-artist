@@ -251,7 +251,15 @@
   padding: 6px;
   border-radius: 16px;
   @extend %glass;
-  animation: pop 0.14s ease;
+  transform-origin: right center;
+  will-change: transform, opacity;
+  /* keeps the -50% vertical centering fixed and only slides in from the
+     right, so the menu no longer jumps down and snaps back on open. */
+  animation: flyIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes flyIn {
+  from { opacity: 0; transform: translateY(-50%) translateX(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); }
 }
 .tdflyout::after {
   content: '';
@@ -265,13 +273,31 @@
   border-right: 1px solid var(--line);
   border-top: 1px solid var(--line);
 }
-/* brush-style options submenu */
+/* combined pen + brush options submenu */
 .tdflyout.styles {
+  display: block;
+  width: 300px;
+  padding: 8px;
+  max-height: calc(100vh - 32px);
+  /* x hidden explicitly: overflow-y:auto alone forces overflow-x to compute as
+     auto, which spawns a spurious horizontal scrollbar. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.flyout-head {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding: 2px 4px 6px;
+}
+.style-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  width: 300px;
-  padding: 8px;
+}
+.style-grid + .flyout-head {
+  margin-top: 10px;
 }
 .tdflyout.styles .brush-card {
   text-align: left;

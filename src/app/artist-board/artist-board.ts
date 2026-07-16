@@ -54,6 +54,20 @@ const ICONS: Record<string, string> = {
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
+/** one selectable option inside a dock submenu (pen nib, brush style, shape) */
+interface SubItem {
+  id: string;
+  name: string;
+  hint: string;
+  active: boolean;
+  kind: 'pen' | 'brush' | 'shape';
+}
+/** a titled group of options within a dock submenu */
+interface SubSection {
+  title: string;
+  items: SubItem[];
+}
+
 @Component({
   selector: 'artist-board',
   imports: [FormsModule, DecimalPipe],
@@ -91,17 +105,15 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     icon: string;
     tool: ToolId;
     members?: ToolId[]; // shape variants (each is its own tool)
-    brushStyles?: boolean; // submenu shows the brush styles
-    penStyles?: boolean; // submenu shows the pen styles
+    covers?: ToolId[]; // extra tools this button owns (offered in its submenu)
+    brushStyles?: boolean; // submenu shows the pen nibs + brush styles
   }[] = [
     { id: 'move', icon: 'move', tool: 'move' },
-    { id: 'pen', icon: 'pen', tool: 'pen', penStyles: true },
-    { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true },
+    { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true, covers: ['pen'] },
     { id: 'eraser', icon: 'eraser', tool: 'eraser' },
     { id: 'shapes', icon: 'rect', tool: 'rect', members: ['line', 'rect', 'ellipse'] },
     { id: 'text', icon: 'text', tool: 'text' },
     { id: 'fill', icon: 'fill', tool: 'fill' },
-    { id: 'eyedropper', icon: 'eyedropper', tool: 'eyedropper' },
   ];
   private lastShape: ToolId = 'rect';
   readonly openGroup = signal<string | null>(null);
@@ -1080,22 +1092,26 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   // ---- tool dock + option submenus ----
-  hasSubmenu(b: { members?: ToolId[]; brushStyles?: boolean; penStyles?: boolean }): boolean {
-    return !!b.members || !!b.brushStyles || !!b.penStyles;
+  hasSubmenu(b: { members?: ToolId[]; brushStyles?: boolean }): boolean {
+    return !!b.members || !!b.brushStyles;
   }
-  buttonActive(b: { tool: ToolId; members?: ToolId[] }): boolean {
-    return b.members ? b.members.includes(this.activeTool()) : this.activeTool() === b.tool;
+  buttonActive(b: { tool: ToolId; members?: ToolId[]; covers?: ToolId[] }): boolean {
+    if (b.members) return b.members.includes(this.activeTool());
+    if (b.covers?.includes(this.activeTool())) return true;
+    return this.activeTool() === b.tool;
   }
-  buttonIcon(b: { icon: string; members?: ToolId[] }): string {
+  buttonIcon(b: { icon: string; members?: ToolId[]; brushStyles?: boolean }): string {
     if (b.members) return b.members.includes(this.activeTool()) ? this.activeTool() : this.lastShape;
+    // the brush button doubles as the pen; reflect whichever is live
+    if (b.brushStyles) return this.activeTool() === 'pen' ? 'pen' : 'brush';
     return b.icon;
   }
   onDockClick(b: {
     id: string;
     tool: ToolId;
     members?: ToolId[];
+    covers?: ToolId[];
     brushStyles?: boolean;
-    penStyles?: boolean;
   }): void {
     // tapping the ACTIVE tool that has options opens its submenu
     if (this.hasSubmenu(b) && this.buttonActive(b)) {
@@ -1106,6 +1122,58 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.selectTool(b.members ? this.lastShape : b.tool);
     this.openGroup.set(null);
   }
+  /** the titled option groups shown in a dock button's submenu */
+  submenuFor(b: { brushStyles?: boolean; members?: ToolId[] }): SubSection[] {
+    if (b.brushStyles) {
+      return [
+        {
+          title: 'Pens',
+          items: this.pens.map((p) => ({
+            id: p.id,
+            name: p.name,
+            hint: p.hint,
+            kind: 'pen' as const,
+            active: this.activeTool() === 'pen' && this.penStyle() === p.id,
+          })),
+        },
+        {
+          title: 'Brushes',
+          items: this.brushes.map((s) => ({
+            id: s.id,
+            name: s.name,
+            hint: s.hint,
+            kind: 'brush' as const,
+            active: this.activeTool() === 'brush' && this.brushStyle() === s.id,
+          })),
+        },
+      ];
+    }
+    if (b.members) {
+      return [
+        {
+          title: 'Shapes',
+          items: b.members.map((m) => {
+            const t = this.tools.find((x) => x.id === m)!;
+            return {
+              id: m,
+              name: t.name,
+              hint: t.hint,
+              kind: 'shape' as const,
+              active: this.activeTool() === m,
+            };
+          }),
+        },
+      ];
+    }
+    return [];
+  }
+
+  pickSubItem(it: SubItem): void {
+    if (it.kind === 'pen') this.pickPenStyle(it.id as PenStyle);
+    else if (it.kind === 'brush') this.pickBrushStyle(it.id as BrushStyle);
+    else this.pickShape(it.id as ToolId);
+  }
+
   pickShape(id: ToolId): void {
     this.selectTool(id);
     this.openGroup.set(null);
@@ -1119,9 +1187,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.penStyle.set(id);
     this.activeTool.set('pen');
     this.openGroup.set(null);
-  }
-  toolName(id: ToolId): string {
-    return this.tools.find((t) => t.id === id)?.name ?? id;
   }
   brushStyleName(): string {
     return this.brushes.find((b) => b.id === this.brushStyle())?.name ?? '';
