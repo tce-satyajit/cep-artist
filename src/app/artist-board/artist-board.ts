@@ -53,12 +53,12 @@ const ICONS: Record<string, string> = {
 };
 
 @Component({
-  selector: 'drawing-board',
+  selector: 'artist-board',
   imports: [FormsModule, DecimalPipe],
-  templateUrl: './drawing-board.html',
-  styleUrl: './drawing-board.scss',
+  templateUrl: './artist-board.html',
+  styleUrl: './artist-board.scss',
 })
-export class DrawingBoard implements AfterViewInit, OnDestroy {
+export class ArtistBoard implements AfterViewInit, OnDestroy {
   private sanitizer = inject(DomSanitizer);
   private iconCache = new Map<string, SafeHtml>();
 

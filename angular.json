@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "drawingboard": {
+    "artist-board": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -81,10 +81,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "drawingboard:build:production"
+              "buildTarget": "artist-board:build:production"
             },
             "development": {
-              "buildTarget": "drawingboard:build:development"
+              "buildTarget": "artist-board:build:development"
             }
           },
           "defaultConfiguration": "development"

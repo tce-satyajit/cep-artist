@@ -1,8 +1,8 @@
-# Angular Drawing Board
+# Angular Artist Board
 
 A Sketchpad-style drawing application built with **Angular 22 (standalone, signals, zoneless)**
 and packaged as a **native web component** via `@angular/elements`. The whole app is a single
-custom element — `<drawing-board></drawing-board>` — that can be dropped into any HTML page.
+custom element — `<artist-board></artist-board>` — that can be dropped into any HTML page.
 
 ## Features
 
@@ -44,7 +44,7 @@ npm start          # ng serve -> http://localhost:4200
 Production build:
 
 ```bash
-npm run build      # outputs to dist/drawingboard
+npm run build      # outputs to dist/artist-board
 ```
 
 ## Using it as a web component elsewhere
@@ -54,7 +54,7 @@ the built `main.js` defines a real custom element. In any host page:
 
 ```html
 <script src="main.js" type="module"></script>
-<drawing-board style="width:100vw;height:100vh;display:block"></drawing-board>
+<artist-board style="width:100vw;height:100vh;display:block"></artist-board>
 ```
 
 No Angular knowledge is required on the host side — it behaves like a standard HTML element.
@@ -63,11 +63,11 @@ No Angular knowledge is required on the host side — it behaves like a standard
 
 | File | Responsibility |
 | --- | --- |
-| [src/main.ts](src/main.ts) | Bootstraps the Angular context and registers `<drawing-board>` as a custom element |
-| [src/app/drawing-board/drawing-board.ts](src/app/drawing-board/drawing-board.ts) | Component + canvas engine: layer compositing, tools, flood fill, history, export |
-| [src/app/drawing-board/drawing-board.html](src/app/drawing-board/drawing-board.html) | Tool rail, floating properties panel, top bar, layers panel |
-| [src/app/drawing-board/drawing-board.scss](src/app/drawing-board/drawing-board.scss) | Dark-panel / light-canvas styling |
-| [src/app/drawing-board/models.ts](src/app/drawing-board/models.ts) | Tool, layer, blend-mode and history types |
+| [src/main.ts](src/main.ts) | Bootstraps the Angular context and registers `<artist-board>` as a custom element |
+| [src/app/artist-board/artist-board.ts](src/app/artist-board/artist-board.ts) | Component + canvas engine: layer compositing, tools, flood fill, history, export |
+| [src/app/artist-board/artist-board.html](src/app/artist-board/artist-board.html) | Tool rail, floating properties panel, top bar, layers panel |
+| [src/app/artist-board/artist-board.scss](src/app/artist-board/artist-board.scss) | Dark-panel / light-canvas styling |
+| [src/app/artist-board/models.ts](src/app/artist-board/models.ts) | Tool, layer, blend-mode and history types |
 
 ### How the canvas engine works
 
