@@ -5,164 +5,47 @@ import {
   HostListener,
   OnDestroy,
   ViewChild,
-  computed,
   inject,
   signal,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { ICONS } from './engine/icons';
 import { paintBrushSegment } from './engine/brushes';
 import { floodFill, rgbaFromColor } from './engine/flood-fill';
 import { BgTexture, paintTexture } from './engine/textures';
 import { drawShapeObject, drawShapePath, pointInShape, ShapeTool } from './engine/shapes';
+import { ArtistStore } from './store/artist-store';
 import {
-  BLEND_MODES,
-  BRUSHES,
   BlendMode,
-  BrushStyle,
   HistoryEntry,
   Layer,
   LayerState,
-  PENS,
-  PenStyle,
   Point,
   ShapeObject,
-  TOOLS,
-  ToolId,
 } from './models';
 
 let uid = 0;
 const nextId = () => `layer-${++uid}`;
-
-/** a dock (toolbar) button, optionally owning a submenu of options */
-interface DockButton {
-  id: string;
-  icon: string;
-  tool: ToolId;
-  members?: ToolId[]; // shape variants (each is its own tool)
-  covers?: ToolId[]; // extra tools this button owns (offered in its submenu)
-  brushStyles?: boolean; // submenu: pen nibs + brush styles
-  eraserOpts?: boolean; // submenu: eraser edge
-  textOpts?: boolean; // submenu: font family + size
-  fillOpts?: boolean; // submenu: flood-fill tolerance
-}
-
-/** one selectable option inside a dock submenu */
-interface SubItem {
-  id: string;
-  name: string;
-  hint: string;
-  active: boolean;
-  kind: 'pen' | 'brush' | 'shape' | 'eraser' | 'font' | 'size' | 'tol';
-}
-/** a titled group of options within a dock submenu */
-interface SubSection {
-  title: string;
-  items: SubItem[];
-}
 
 @Component({
   selector: 'artist-board',
   imports: [FormsModule, DecimalPipe],
   templateUrl: './artist-board.html',
   styleUrl: './artist-board.scss',
+  providers: [ArtistStore],
 })
 export class ArtistBoard implements AfterViewInit, OnDestroy {
-  private sanitizer = inject(DomSanitizer);
-  private iconCache = new Map<string, SafeHtml>();
-
-  iconFor(name: string): SafeHtml {
-    let cached = this.iconCache.get(name);
-    if (!cached) {
-      cached = this.sanitizer.bypassSecurityTrustHtml(ICONS[name] ?? '');
-      this.iconCache.set(name, cached);
-    }
-    return cached;
-  }
+  readonly store = inject(ArtistStore);
 
   @ViewChild('stage', { static: true }) stageRef!: ElementRef<HTMLDivElement>;
   @ViewChild('board', { static: true }) boardRef!: ElementRef<HTMLCanvasElement>;
 
-  readonly tools = TOOLS;
-  readonly blendModes = BLEND_MODES;
-  readonly brushes = BRUSHES;
-  readonly pens = PENS;
-
-  /**
-   * Dock buttons. Each is its own tool. A button may carry a submenu holding
-   * that tool's OPTIONS — the Pen exposes its nibs, the Brush its styles,
-   * Shapes their variants.
-   */
-  readonly dock: DockButton[] = [
-    { id: 'move', icon: 'move', tool: 'move' },
-    { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true, covers: ['pen'] },
-    { id: 'eraser', icon: 'eraser', tool: 'eraser', eraserOpts: true },
-    { id: 'shapes', icon: 'rect', tool: 'rect', members: ['line', 'rect', 'ellipse'] },
-    { id: 'text', icon: 'text', tool: 'text', textOpts: true },
-    { id: 'fill', icon: 'fill', tool: 'fill', fillOpts: true },
-  ];
-  private lastShape: ToolId = 'rect';
-  readonly openGroup = signal<string | null>(null);
-
-  // ---- reactive UI state ----
-  readonly activeTool = signal<ToolId>('pen');
-  readonly outlineColor = signal('#101114');
-  readonly fillColor = signal('#f7c6cf');
-  readonly outlineOpacity = signal(1);
-  readonly fillOpacity = signal(0.56);
-  readonly lineWidth = signal(10);
-  readonly fontSize = signal(42);
-  readonly brushStyle = signal<BrushStyle>('ink');
-  readonly penStyle = signal<PenStyle>('medium');
-  readonly eraserStyle = signal<'hard' | 'soft'>('hard');
-  readonly fontFamily = signal<'sans' | 'serif' | 'mono'>('sans');
-  readonly fillTolerance = signal(32);
-
-  // ---- canvas background ----
-  readonly bgKind = signal<'color' | 'texture' | 'image'>('color');
-  readonly bgColor = signal('#ffffff');
-  readonly bgTexture = signal<BgTexture>('dots');
-  readonly bgImageUrl = signal<string | null>(null);
-  private bgImageEl: HTMLImageElement | null = null;
-  readonly bgColors = ['#ffffff', '#f6f1e7', '#0f1014', '#fde2e4', '#e0f2fe', '#e8f5e9', '#fff4d6'];
-  readonly bgTextures: { id: BgTexture; name: string }[] = [
-    { id: 'dots', name: 'Dots' },
-    { id: 'grid', name: 'Grid' },
-    { id: 'lines', name: 'Lines' },
-    { id: 'paper', name: 'Paper' },
-  ];
-
-  readonly layers = signal<Layer[]>([]);
-  readonly activeLayerId = signal<string>('');
-  readonly layersPanelOpen = signal(false);
-  readonly colorPickerOpen = signal(false);
-  readonly backgroundOpen = signal(false);
-  readonly moreOpen = signal(false);
-
-  readonly canUndo = signal(false);
-  readonly canRedo = signal(false);
-
-  readonly zoom = signal(1);
-  readonly panX = signal(0);
-  readonly panY = signal(0);
-
-  // text-input overlay
+  // text-input overlay (lives with the canvas)
   readonly textEditing = signal(false);
   readonly textPos = signal<Point>({ x: 0, y: 0 });
   textValue = '';
 
-  // left-edge size / opacity sliders (Procreate-style)
-  readonly activeSlider = signal<'size' | 'opacity' | null>(null);
-  readonly sizePct = computed(() => ((this.lineWidth() - 1) / (80 - 1)) * 100);
-  readonly opacityPct = computed(() => this.outlineOpacity() * 100);
-
-  readonly activeLayer = computed<Layer | undefined>(
-    () => this.layers().find((l) => l.id === this.activeLayerId()),
-  );
-  /** layers rendered top-to-bottom in the panel */
-  readonly layersReversed = computed(() => [...this.layers()].reverse());
+  private bgImageEl: HTMLImageElement | null = null;
 
   // ---- engine internals ----
   private board!: HTMLCanvasElement;
@@ -206,8 +89,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const bg = this.makeLayer('Background');
     this.paintBackground(bg);
     const l1 = this.makeLayer('Layer 1');
-    this.layers.set([bg, l1]);
-    this.activeLayerId.set(l1.id);
+    this.store.layers.set([bg, l1]);
+    this.store.activeLayerId.set(l1.id);
     this.render();
 
     this.ro = new ResizeObserver(() => this.resizeToStage(false));
@@ -242,20 +125,20 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   addLayer(): void {
-    const l = this.makeLayer(`Layer ${this.layers().length}`);
-    this.layers.update((ls) => [...ls, l]);
-    this.activeLayerId.set(l.id);
+    const l = this.makeLayer(`Layer ${this.store.layers().length}`);
+    this.store.layers.update((ls) => [...ls, l]);
+    this.store.activeLayerId.set(l.id);
     this.render();
   }
 
   deleteLayer(id: string): void {
-    const ls = this.layers();
+    const ls = this.store.layers();
     if (ls.length <= 1) return;
     const idx = ls.findIndex((l) => l.id === id);
     const next = ls.filter((l) => l.id !== id);
-    this.layers.set(next);
-    if (this.activeLayerId() === id) {
-      this.activeLayerId.set(next[Math.max(0, idx - 1)].id);
+    this.store.layers.set(next);
+    if (this.store.activeLayerId() === id) {
+      this.store.activeLayerId.set(next[Math.max(0, idx - 1)].id);
     }
     this.undoStack = this.undoStack.filter((e) => e.layerId !== id);
     this.redoStack = this.redoStack.filter((e) => e.layerId !== id);
@@ -264,42 +147,42 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   selectLayer(id: string): void {
-    this.activeLayerId.set(id);
+    this.store.activeLayerId.set(id);
   }
 
   toggleLayerVisible(id: string): void {
-    this.layers.update((ls) =>
+    this.store.layers.update((ls) =>
       ls.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l)),
     );
     this.render();
   }
 
   setLayerOpacity(id: string, value: number): void {
-    this.layers.update((ls) =>
+    this.store.layers.update((ls) =>
       ls.map((l) => (l.id === id ? { ...l, opacity: value } : l)),
     );
     this.render();
   }
 
   setLayerBlend(id: string, value: BlendMode): void {
-    this.layers.update((ls) =>
+    this.store.layers.update((ls) =>
       ls.map((l) => (l.id === id ? { ...l, blend: value } : l)),
     );
     this.render();
   }
 
   moveLayer(id: string, dir: -1 | 1): void {
-    const ls = [...this.layers()];
+    const ls = [...this.store.layers()];
     const i = ls.findIndex((l) => l.id === id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= ls.length) return;
     [ls[i], ls[j]] = [ls[j], ls[i]];
-    this.layers.set(ls);
+    this.store.layers.set(ls);
     this.render();
   }
 
   clearActiveLayer(): void {
-    const layer = this.activeLayer();
+    const layer = this.store.activeLayer();
     if (!layer) return;
     const before = this.snapshot(layer);
     layer.ctx.clearRect(0, 0, this.width, this.height);
@@ -317,8 +200,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.bctx.clearRect(0, 0, this.board.width, this.board.height);
     // checkerboard for transparency
     this.paintCheckerboard();
-    const activeId = this.activeLayerId();
-    for (const layer of this.layers()) {
+    const activeId = this.store.activeLayerId();
+    for (const layer of this.store.layers()) {
       if (!layer.visible || layer.opacity <= 0) continue;
       // composite this layer's raster + shapes (+ live stroke) into the buffer
       // at full alpha, then blit once at the layer's opacity/blend.
@@ -331,7 +214,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       this.drawShapesToCtx(bx, layer.shapes);
       // live preview of the in-progress freehand stroke, at its final opacity
       if (this.strokeBuffer && layer.id === activeId) {
-        bx.globalAlpha = this.outlineOpacity();
+        bx.globalAlpha = this.store.outlineOpacity();
         bx.drawImage(this.strokeBuffer, 0, 0);
         bx.globalAlpha = 1;
       }
@@ -369,7 +252,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // Canvas background (the 'Background' layer)
   // =========================================================================
   private backgroundLayer(): Layer | undefined {
-    return this.layers().find((l) => l.name === 'Background');
+    return this.store.layers().find((l) => l.name === 'Background');
   }
 
   /** repaint the background layer from the current bg* settings, then redraw */
@@ -386,7 +269,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const h = this.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (this.bgKind() === 'image' && this.bgImageEl) {
+    if (this.store.bgKind() === 'image' && this.bgImageEl) {
       // opaque base under any transparent image, then cover-fit
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, w, h);
@@ -406,28 +289,28 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (this.bgKind() === 'texture') {
-      paintTexture(ctx, this.bgTexture(), w, h);
+    if (this.store.bgKind() === 'texture') {
+      paintTexture(ctx, this.store.bgTexture(), w, h);
       return;
     }
 
     // solid color (also the fallback when 'image' has no file yet)
-    ctx.fillStyle = this.bgKind() === 'image' ? '#ffffff' : this.bgColor();
+    ctx.fillStyle = this.store.bgKind() === 'image' ? '#ffffff' : this.store.bgColor();
     ctx.fillRect(0, 0, w, h);
   }
 
   setBgKind(k: 'color' | 'texture' | 'image'): void {
-    this.bgKind.set(k);
+    this.store.bgKind.set(k);
     this.applyBackground();
   }
   setBgColor(c: string): void {
-    this.bgColor.set(c);
-    this.bgKind.set('color');
+    this.store.bgColor.set(c);
+    this.store.bgKind.set('color');
     this.applyBackground();
   }
   setBgTexture(t: BgTexture): void {
-    this.bgTexture.set(t);
-    this.bgKind.set('texture');
+    this.store.bgTexture.set(t);
+    this.store.bgKind.set('texture');
     this.applyBackground();
   }
   onBgImage(ev: Event): void {
@@ -441,8 +324,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       const img = new Image();
       img.onload = () => {
         this.bgImageEl = img;
-        this.bgImageUrl.set(url);
-        this.bgKind.set('image');
+        this.store.bgImageUrl.set(url);
+        this.store.bgKind.set('image');
         this.applyBackground();
       };
       img.src = url;
@@ -451,8 +334,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
   removeBgImage(): void {
     this.bgImageEl = null;
-    this.bgImageUrl.set(null);
-    this.bgKind.set('color');
+    this.store.bgImageUrl.set(null);
+    this.store.bgKind.set('color');
     this.applyBackground();
   }
 
@@ -465,7 +348,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const h = Math.max(1, Math.floor(rect.height));
     if (!initial && w === this.width && h === this.height) return;
 
-    const oldLayers = this.layers();
+    const oldLayers = this.store.layers();
     const oldW = this.width;
     const oldH = this.height;
     this.width = w;
@@ -503,7 +386,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
         }
         return nl;
       });
-      this.layers.set(migrated);
+      this.store.layers.set(migrated);
       // history references old bitmaps; drop it to stay consistent
       this.undoStack = [];
       this.redoStack = [];
@@ -518,8 +401,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   private toStagePoint(ev: PointerEvent): Point {
     const rect = this.board.getBoundingClientRect();
     return {
-      x: (ev.clientX - rect.left) / this.zoom(),
-      y: (ev.clientY - rect.top) / this.zoom(),
+      x: (ev.clientX - rect.left) / this.store.zoom(),
+      y: (ev.clientY - rect.top) / this.store.zoom(),
     };
   }
 
@@ -529,11 +412,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (this.activePointerId !== null) return;
     this.activePointerId = ev.pointerId;
     // tapping the canvas dismisses transient floating menus
-    if (this.colorPickerOpen()) this.colorPickerOpen.set(false);
-    if (this.backgroundOpen()) this.backgroundOpen.set(false);
-    if (this.moreOpen()) this.moreOpen.set(false);
-    if (this.openGroup()) this.openGroup.set(null);
-    const tool = this.activeTool();
+    if (this.store.colorPickerOpen()) this.store.colorPickerOpen.set(false);
+    if (this.store.backgroundOpen()) this.store.backgroundOpen.set(false);
+    if (this.store.moreOpen()) this.store.moreOpen.set(false);
+    if (this.store.openGroup()) this.store.openGroup.set(null);
+    const tool = this.store.activeTool();
     const p = this.toStagePoint(ev);
 
     if (tool === 'move') {
@@ -553,7 +436,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const layer = this.activeLayer();
+    const layer = this.store.activeLayer();
     if (!layer) return;
 
     this.board.setPointerCapture(ev.pointerId);
@@ -568,8 +451,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       // through); otherwise fall back to a pixel flood fill.
       const shape = this.hitTestShape(layer, p);
       if (shape) {
-        shape.fill = this.fillColor();
-        shape.fillOpacity = this.fillOpacity();
+        shape.fill = this.store.fillColor();
+        shape.fillOpacity = this.store.fillOpacity();
       } else {
         this.floodFill(layer, p);
       }
@@ -592,18 +475,18 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
   onPointerMove(ev: PointerEvent): void {
     if (!this.drawing || ev.pointerId !== this.activePointerId) return;
-    const tool = this.activeTool();
+    const tool = this.store.activeTool();
 
     if (tool === 'move') {
       const dx = ev.clientX - this.start.x;
       const dy = ev.clientY - this.start.y;
-      this.panX.update((v) => v + dx);
-      this.panY.update((v) => v + dy);
+      this.store.panX.update((v) => v + dx);
+      this.store.panY.update((v) => v + dy);
       this.start = { x: ev.clientX, y: ev.clientY };
       return;
     }
 
-    const layer = this.activeLayer();
+    const layer = this.store.activeLayer();
     if (!layer) return;
 
     if (tool === 'pen' || tool === 'brush' || tool === 'eraser') {
@@ -627,7 +510,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   /** advance a freehand stroke by one sample point */
   private freehandSample(layer: Layer, p: Point): void {
     this.points.push(p);
-    if (this.activeTool() === 'pen') {
+    if (this.store.activeTool() === 'pen') {
       this.penSmoothTo(p);
     } else {
       // brush + eraser keep their direction-dependent straight segments,
@@ -648,7 +531,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (!ctx) return;
     const mid = { x: (this.last.x + p.x) / 2, y: (this.last.y + p.y) / 2 };
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = this.outlineColor();
+    ctx.strokeStyle = this.store.outlineColor();
     ctx.lineWidth = this.penWidthFor(this.last, p);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -662,8 +545,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
   /** stroke width for the current pen nib over one segment a -> b */
   private penWidthFor(a: Point, b: Point): number {
-    const w = this.lineWidth();
-    switch (this.penStyle()) {
+    const w = this.store.lineWidth();
+    switch (this.store.penStyle()) {
       case 'fine':
         return Math.max(0.75, w * 0.5);
       case 'bold':
@@ -683,8 +566,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (ev.pointerId !== this.activePointerId) return;
     this.activePointerId = null;
     if (!this.drawing) return;
-    const tool = this.activeTool();
-    const layer = this.activeLayer();
+    const tool = this.store.activeTool();
+    const layer = this.store.activeLayer();
 
     if (tool === 'move') {
       this.drawing = false;
@@ -730,7 +613,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   private strokeSegment(layer: Layer, a: Point, b: Point): void {
-    const tool = this.activeTool();
+    const tool = this.store.activeTool();
 
     // eraser cuts straight into the layer (round eraser tip)
     if (tool === 'eraser') {
@@ -738,12 +621,12 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.globalAlpha = 1;
-      ctx.lineWidth = this.lineWidth();
+      ctx.lineWidth = this.store.lineWidth();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       // soft nib feathers its edge with a blur proportional to the tip size
-      if (this.eraserStyle() === 'soft') {
-        ctx.filter = `blur(${Math.max(2, this.lineWidth() * 0.3)}px)`;
+      if (this.store.eraserStyle() === 'soft') {
+        ctx.filter = `blur(${Math.max(2, this.store.lineWidth() * 0.3)}px)`;
       }
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
@@ -757,13 +640,13 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const ctx = this.sbctx;
     if (!ctx) return;
     ctx.globalAlpha = 1;
-    ctx.fillStyle = this.outlineColor();
-    ctx.strokeStyle = this.outlineColor();
+    ctx.fillStyle = this.store.outlineColor();
+    ctx.strokeStyle = this.store.outlineColor();
 
     if (tool === 'brush') {
-      paintBrushSegment(ctx, this.brushStyle(), a, b, {
-        color: this.outlineColor(),
-        width: this.lineWidth(),
+      paintBrushSegment(ctx, this.store.brushStyle(), a, b, {
+        color: this.store.outlineColor(),
+        width: this.store.lineWidth(),
         nibAngle: this.nibAngle,
       });
       ctx.globalAlpha = 1;
@@ -771,7 +654,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     }
 
     // pen: clean round stroke
-    ctx.lineWidth = this.lineWidth();
+    ctx.lineWidth = this.store.lineWidth();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -785,11 +668,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     ctx.save();
     ctx.scale(dpr, dpr);
     drawShapePath(ctx, tool, a, b, {
-      stroke: this.outlineColor(),
-      strokeWidth: this.lineWidth(),
-      strokeOpacity: this.outlineOpacity(),
-      fill: this.fillColor(),
-      fillOpacity: this.fillOpacity(),
+      stroke: this.store.outlineColor(),
+      strokeWidth: this.store.lineWidth(),
+      strokeOpacity: this.store.outlineOpacity(),
+      fill: this.store.fillColor(),
+      fillOpacity: this.store.fillOpacity(),
     });
     ctx.restore();
   }
@@ -803,11 +686,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       tool,
       a: { ...a },
       b: { ...b },
-      stroke: this.outlineColor(),
-      strokeWidth: this.lineWidth(),
-      strokeOpacity: this.outlineOpacity(),
-      fill: this.fillColor(),
-      fillOpacity: this.fillOpacity(),
+      stroke: this.store.outlineColor(),
+      strokeWidth: this.store.lineWidth(),
+      strokeOpacity: this.store.outlineOpacity(),
+      fill: this.store.fillColor(),
+      fillOpacity: this.store.fillOpacity(),
     };
   }
 
@@ -829,7 +712,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const sy = Math.floor(p.y * this.dpr);
     if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
     const img = ctx.getImageData(0, 0, W, H);
-    floodFill(img, sx, sy, rgbaFromColor(this.fillColor(), this.fillOpacity()), this.fillTolerance());
+    floodFill(img, sx, sy, rgbaFromColor(this.store.fillColor(), this.store.fillOpacity()), this.store.fillTolerance());
     ctx.putImageData(img, 0, 0);
   }
 
@@ -845,7 +728,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       [d[0], d[1], d[2]]
         .map((v) => v.toString(16).padStart(2, '0'))
         .join('');
-    this.outlineColor.set(hex);
+    this.store.outlineColor.set(hex);
   }
 
   // =========================================================================
@@ -868,15 +751,15 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const value = this.textValue.trim();
     this.textEditing.set(false);
     if (!value) return;
-    const layer = this.activeLayer();
+    const layer = this.store.activeLayer();
     if (!layer) return;
     const before = this.snapshot(layer);
     const ctx = layer.ctx;
     const p = this.textPos();
-    ctx.globalAlpha = this.fillOpacity();
-    ctx.fillStyle = this.fillColor();
+    ctx.globalAlpha = this.store.fillOpacity();
+    ctx.fillStyle = this.store.fillColor();
     ctx.textBaseline = 'top';
-    ctx.font = `${this.fontSize()}px ${this.fontStack()}`;
+    ctx.font = `${this.store.fontSize()}px ${this.store.fontStack()}`;
     ctx.fillText(value, p.x, p.y);
     ctx.globalAlpha = 1;
     const after = this.snapshot(layer);
@@ -916,7 +799,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       const ctx = layer.ctx;
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = this.outlineOpacity();
+      ctx.globalAlpha = this.store.outlineOpacity();
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(this.strokeBuffer, 0, 0);
       ctx.restore();
@@ -937,14 +820,14 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   private syncHistoryFlags(): void {
-    this.canUndo.set(this.undoStack.length > 0);
-    this.canRedo.set(this.redoStack.length > 0);
+    this.store.canUndo.set(this.undoStack.length > 0);
+    this.store.canRedo.set(this.redoStack.length > 0);
   }
 
   undo(): void {
     const entry = this.undoStack.pop();
     if (!entry) return;
-    const layer = this.layers().find((l) => l.id === entry.layerId);
+    const layer = this.store.layers().find((l) => l.id === entry.layerId);
     if (layer) this.restore(layer, entry.before);
     this.redoStack.push(entry);
     this.syncHistoryFlags();
@@ -954,7 +837,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   redo(): void {
     const entry = this.redoStack.pop();
     if (!entry) return;
-    const layer = this.layers().find((l) => l.id === entry.layerId);
+    const layer = this.store.layers().find((l) => l.id === entry.layerId);
     if (layer) this.restore(layer, entry.after);
     this.undoStack.push(entry);
     this.syncHistoryFlags();
@@ -969,7 +852,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     out.width = this.board.width;
     out.height = this.board.height;
     const octx = out.getContext('2d')!;
-    for (const layer of this.layers()) {
+    for (const layer of this.store.layers()) {
       if (!layer.visible || layer.opacity <= 0) continue;
       // composite raster + shapes for the layer, then blit at its opacity/blend
       const bx = this.lbctx;
@@ -991,7 +874,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   clearAll(): void {
-    for (const layer of this.layers()) {
+    for (const layer of this.store.layers()) {
       if (layer.name === 'Background') {
         this.paintBackground(layer);
       } else {
@@ -1006,280 +889,13 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   resetView(): void {
-    this.zoom.set(1);
-    this.panX.set(0);
-    this.panY.set(0);
+    this.store.zoom.set(1);
+    this.store.panX.set(0);
+    this.store.panY.set(0);
   }
 
   zoomBy(factor: number): void {
-    this.zoom.update((z) => Math.min(6, Math.max(0.2, z * factor)));
-  }
-
-  // =========================================================================
-  // UI helpers
-  // =========================================================================
-  selectTool(id: ToolId): void {
-    this.activeTool.set(id);
-    if (id === 'line' || id === 'rect' || id === 'ellipse') this.lastShape = id;
-    if (this.textEditing()) this.commitText();
-  }
-
-  // ---- tool dock + option submenus ----
-  hasSubmenu(b: DockButton): boolean {
-    return this.submenuFor(b).length > 0;
-  }
-  buttonActive(b: DockButton): boolean {
-    if (b.members) return b.members.includes(this.activeTool());
-    if (b.covers?.includes(this.activeTool())) return true;
-    return this.activeTool() === b.tool;
-  }
-  buttonIcon(b: DockButton): string {
-    if (b.members) return b.members.includes(this.activeTool()) ? this.activeTool() : this.lastShape;
-    // the brush button doubles as the pen; reflect whichever is live
-    if (b.brushStyles) return this.activeTool() === 'pen' ? 'pen' : 'brush';
-    return b.icon;
-  }
-  onDockClick(b: DockButton): void {
-    // tapping the ACTIVE tool that has options opens its submenu
-    if (this.hasSubmenu(b) && this.buttonActive(b)) {
-      this.openGroup.set(this.openGroup() === b.id ? null : b.id);
-      return;
-    }
-    // otherwise activate the tool
-    this.selectTool(b.members ? this.lastShape : b.tool);
-    this.openGroup.set(null);
-  }
-  /** the titled option groups shown in a dock button's submenu */
-  submenuFor(b: DockButton): SubSection[] {
-    if (b.eraserOpts) {
-      return [
-        {
-          title: 'Edge',
-          items: [
-            { id: 'hard', name: 'Hard', hint: 'Crisp, full-strength erase', kind: 'eraser', active: this.eraserStyle() === 'hard' },
-            { id: 'soft', name: 'Soft', hint: 'Feathered, soft-edged erase', kind: 'eraser', active: this.eraserStyle() === 'soft' },
-          ],
-        },
-      ];
-    }
-    if (b.textOpts) {
-      const sizes: { px: number; label: string }[] = [
-        { px: 24, label: 'Small' },
-        { px: 42, label: 'Body' },
-        { px: 72, label: 'Display' },
-      ];
-      return [
-        {
-          title: 'Font',
-          items: [
-            { id: 'sans', name: 'Sans', hint: 'Inter / system sans', kind: 'font', active: this.fontFamily() === 'sans' },
-            { id: 'serif', name: 'Serif', hint: 'Georgia serif', kind: 'font', active: this.fontFamily() === 'serif' },
-            { id: 'mono', name: 'Mono', hint: 'Monospace', kind: 'font', active: this.fontFamily() === 'mono' },
-          ],
-        },
-        {
-          title: 'Size',
-          items: sizes.map((s) => ({
-            id: String(s.px),
-            name: `${s.px} px`,
-            hint: s.label,
-            kind: 'size' as const,
-            active: this.fontSize() === s.px,
-          })),
-        },
-      ];
-    }
-    if (b.fillOpts) {
-      const levels: { tol: number; name: string; hint: string }[] = [
-        { tol: 12, name: 'Low', hint: 'Match very similar colors' },
-        { tol: 32, name: 'Medium', hint: 'Balanced matching' },
-        { tol: 64, name: 'High', hint: 'Match a wide color range' },
-      ];
-      return [
-        {
-          title: 'Tolerance',
-          items: levels.map((l) => ({
-            id: String(l.tol),
-            name: l.name,
-            hint: l.hint,
-            kind: 'tol' as const,
-            active: this.fillTolerance() === l.tol,
-          })),
-        },
-      ];
-    }
-    if (b.brushStyles) {
-      return [
-        {
-          title: 'Pens',
-          items: this.pens.map((p) => ({
-            id: p.id,
-            name: p.name,
-            hint: p.hint,
-            kind: 'pen' as const,
-            active: this.activeTool() === 'pen' && this.penStyle() === p.id,
-          })),
-        },
-        {
-          title: 'Brushes',
-          items: this.brushes.map((s) => ({
-            id: s.id,
-            name: s.name,
-            hint: s.hint,
-            kind: 'brush' as const,
-            active: this.activeTool() === 'brush' && this.brushStyle() === s.id,
-          })),
-        },
-      ];
-    }
-    if (b.members) {
-      return [
-        {
-          title: 'Shapes',
-          items: b.members.map((m) => {
-            const t = this.tools.find((x) => x.id === m)!;
-            return {
-              id: m,
-              name: t.name,
-              hint: t.hint,
-              kind: 'shape' as const,
-              active: this.activeTool() === m,
-            };
-          }),
-        },
-      ];
-    }
-    return [];
-  }
-
-  pickSubItem(it: SubItem): void {
-    switch (it.kind) {
-      case 'pen':
-        this.pickPenStyle(it.id as PenStyle);
-        break;
-      case 'brush':
-        this.pickBrushStyle(it.id as BrushStyle);
-        break;
-      case 'shape':
-        this.pickShape(it.id as ToolId);
-        break;
-      case 'eraser':
-        this.eraserStyle.set(it.id as 'hard' | 'soft');
-        this.activeTool.set('eraser');
-        this.openGroup.set(null);
-        break;
-      case 'font':
-        this.fontFamily.set(it.id as 'sans' | 'serif' | 'mono');
-        this.activeTool.set('text');
-        this.openGroup.set(null);
-        break;
-      case 'size':
-        this.fontSize.set(+it.id);
-        this.activeTool.set('text');
-        this.openGroup.set(null);
-        break;
-      case 'tol':
-        this.fillTolerance.set(+it.id);
-        this.activeTool.set('fill');
-        this.openGroup.set(null);
-        break;
-    }
-  }
-
-  pickShape(id: ToolId): void {
-    this.selectTool(id);
-    this.openGroup.set(null);
-  }
-  pickBrushStyle(id: BrushStyle): void {
-    this.brushStyle.set(id);
-    this.activeTool.set('brush');
-    this.openGroup.set(null);
-  }
-  pickPenStyle(id: PenStyle): void {
-    this.penStyle.set(id);
-    this.activeTool.set('pen');
-    this.openGroup.set(null);
-  }
-  /** whether this dock button's tool paints a fill (so it needs the slider) */
-  menuHasFillOpacity(b: DockButton): boolean {
-    if (b.fillOpts || b.textOpts) return true;
-    if (b.members) return b.members.some((m) => this.tools.find((t) => t.id === m)?.usesFill);
-    return false;
-  }
-  fontStack(): string {
-    switch (this.fontFamily()) {
-      case 'serif':
-        return 'Georgia, "Times New Roman", serif';
-      case 'mono':
-        return '"SF Mono", ui-monospace, Menlo, monospace';
-      default:
-        return '"Inter", system-ui, -apple-system, sans-serif';
-    }
-  }
-
-  toggleLayers(): void {
-    this.openGroup.set(null);
-    const next = !this.layersPanelOpen();
-    this.layersPanelOpen.set(next);
-    if (next) {
-      this.colorPickerOpen.set(false);
-      this.backgroundOpen.set(false);
-      this.moreOpen.set(false);
-    }
-  }
-  toggleColor(): void {
-    this.openGroup.set(null);
-    const next = !this.colorPickerOpen();
-    this.colorPickerOpen.set(next);
-    if (next) {
-      this.layersPanelOpen.set(false);
-      this.backgroundOpen.set(false);
-      this.moreOpen.set(false);
-    }
-  }
-  toggleBackground(): void {
-    this.openGroup.set(null);
-    const next = !this.backgroundOpen();
-    this.backgroundOpen.set(next);
-    if (next) {
-      this.layersPanelOpen.set(false);
-      this.colorPickerOpen.set(false);
-      this.moreOpen.set(false);
-    }
-  }
-  toggleMore(): void {
-    this.openGroup.set(null);
-    const next = !this.moreOpen();
-    this.moreOpen.set(next);
-    if (next) {
-      this.layersPanelOpen.set(false);
-      this.colorPickerOpen.set(false);
-      this.backgroundOpen.set(false);
-    }
-  }
-
-  cursorForTool(): string {
-    switch (this.activeTool()) {
-      case 'move':
-        return 'grab';
-      case 'text':
-        return 'text';
-      case 'eyedropper':
-      case 'fill':
-        return 'crosshair';
-      default:
-        return 'crosshair';
-    }
-  }
-
-  onOutlineOpacity(v: string): void {
-    this.outlineOpacity.set(+v / 100);
-  }
-  onFillOpacity(v: string): void {
-    this.fillOpacity.set(+v / 100);
-  }
-  onLineWidth(v: string): void {
-    this.lineWidth.set(+v);
+    this.store.zoom.update((z) => Math.min(6, Math.max(0.2, z * factor)));
   }
 
   // ---- left-edge vertical sliders (touch + mouse) ----
@@ -1288,7 +904,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   sliderDown(kind: 'size' | 'opacity', ev: PointerEvent): void {
     ev.preventDefault();
     ev.stopPropagation();
-    this.activeSlider.set(kind);
+    this.store.activeSlider.set(kind);
     this.sliderRect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
     this.applySlider(ev.clientX);
@@ -1296,25 +912,25 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
   private applySlider(clientX: number): void {
     const r = this.sliderRect;
-    const kind = this.activeSlider();
+    const kind = this.store.activeSlider();
     if (!r || !kind) return;
     // left of the track = minimum
     const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
     if (kind === 'size') {
-      this.lineWidth.set(Math.round(1 + frac * (80 - 1)));
+      this.store.lineWidth.set(Math.round(1 + frac * (80 - 1)));
     } else {
-      this.outlineOpacity.set(Math.round(frac * 100) / 100);
+      this.store.outlineOpacity.set(Math.round(frac * 100) / 100);
     }
   }
 
   @HostListener('window:pointermove', ['$event'])
   onWindowPointerMove(ev: PointerEvent): void {
-    if (!this.activeSlider()) return;
+    if (!this.store.activeSlider()) return;
     this.applySlider(ev.clientX);
   }
   @HostListener('window:pointerup')
   onWindowPointerUp(): void {
-    this.activeSlider.set(null);
+    this.store.activeSlider.set(null);
     this.sliderRect = null;
   }
 
@@ -1336,10 +952,10 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       this.redo();
       return;
     }
-    if (ev.key === '[') this.lineWidth.update((w) => Math.max(1, w - 2));
-    if (ev.key === ']') this.lineWidth.update((w) => Math.min(80, w + 2));
-    const tool = this.tools.find((t) => t.shortcut.toLowerCase() === ev.key.toLowerCase());
-    if (tool) this.selectTool(tool.id);
+    if (ev.key === '[') this.store.lineWidth.update((w) => Math.max(1, w - 2));
+    if (ev.key === ']') this.store.lineWidth.update((w) => Math.min(80, w + 2));
+    const tool = this.store.tools.find((t) => t.shortcut.toLowerCase() === ev.key.toLowerCase());
+    if (tool) this.store.setTool(tool.id);
   }
 
   // suppress the long-press / right-click context menu so touch drawing is clean

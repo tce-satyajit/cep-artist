@@ -1,10 +1,10 @@
-<div class="db-root" [class.sliding]="activeSlider()">
+<div class="db-root" [class.sliding]="store.activeSlider()">
   <!-- ===== Full-bleed canvas ===== -->
-  <div #stage class="stage" [style.cursor]="cursorForTool()">
+  <div #stage class="stage" [style.cursor]="store.cursorForTool()">
     <canvas
       #board
       class="board"
-      [style.transform]="'translate(' + panX() + 'px,' + panY() + 'px) scale(' + zoom() + ')'"
+      [style.transform]="'translate(' + store.panX() + 'px,' + store.panY() + 'px) scale(' + store.zoom() + ')'"
       (pointerdown)="onPointerDown($event)"
       (pointermove)="onPointerMove($event)"
       (pointerup)="onPointerUp($event)"
@@ -15,11 +15,11 @@
     @if (textEditing()) {
       <input
         class="text-input"
-        [style.left.px]="textPos().x * zoom() + panX()"
-        [style.top.px]="textPos().y * zoom() + panY()"
-        [style.font-size.px]="fontSize() * zoom()"
-        [style.font-family]="fontStack()"
-        [style.color]="fillColor()"
+        [style.left.px]="textPos().x * store.zoom() + store.panX()"
+        [style.top.px]="textPos().y * store.zoom() + store.panY()"
+        [style.font-size.px]="store.fontSize() * store.zoom()"
+        [style.font-family]="store.fontStack()"
+        [style.color]="store.fillColor()"
         [(ngModel)]="textValue"
         (keydown.enter)="commitText()"
         (keydown.escape)="cancelText()"
@@ -32,65 +32,65 @@
   <!-- ===== Bottom-center bar: undo/redo · color · Size + Opacity ===== -->
   <div class="bottombar">
     <div class="bb-group">
-      <button class="tb" (click)="undo()" [disabled]="!canUndo()" title="Undo (⌘Z)">
-        <span class="ico" [innerHTML]="iconFor('undo')"></span>
+      <button class="tb" (click)="undo()" [disabled]="!store.canUndo()" title="Undo (⌘Z)">
+        <span class="ico" [innerHTML]="store.iconFor('undo')"></span>
       </button>
-      <button class="tb" (click)="redo()" [disabled]="!canRedo()" title="Redo (⌘⇧Z)">
-        <span class="ico" [innerHTML]="iconFor('redo')"></span>
+      <button class="tb" (click)="redo()" [disabled]="!store.canRedo()" title="Redo (⌘⇧Z)">
+        <span class="ico" [innerHTML]="store.iconFor('redo')"></span>
       </button>
     </div>
 
     <div class="bb-divider"></div>
 
-    <button class="tb swatch-btn" [class.active]="colorPickerOpen()" (click)="toggleColor()" title="Color">
-      <span class="swatch-chip" [style.background]="outlineColor()"></span>
+    <button class="tb swatch-btn" [class.active]="store.colorPickerOpen()" (click)="store.toggleColor()" title="Color">
+      <span class="swatch-chip" [style.background]="store.outlineColor()"></span>
     </button>
 
     <div class="bb-divider"></div>
 
-    <div class="hslider" [class.on]="activeSlider() === 'size'">
+    <div class="hslider" [class.on]="store.activeSlider() === 'size'">
       <span class="hcap">Size</span>
       <div class="htrack" (pointerdown)="sliderDown('size', $event)">
-        <div class="hfill" [style.width.%]="sizePct()"></div>
-        <div class="hthumb" [style.left.%]="sizePct()"></div>
+        <div class="hfill" [style.width.%]="store.sizePct()"></div>
+        <div class="hthumb" [style.left.%]="store.sizePct()"></div>
       </div>
-      <span class="hval">{{ lineWidth() }}px</span>
+      <span class="hval">{{ store.lineWidth() }}px</span>
     </div>
-    <div class="hslider" [class.on]="activeSlider() === 'opacity'">
+    <div class="hslider" [class.on]="store.activeSlider() === 'opacity'">
       <span class="hcap">Opacity</span>
       <div class="htrack" (pointerdown)="sliderDown('opacity', $event)">
-        <div class="hfill opacity" [style.width.%]="opacityPct()"></div>
-        <div class="hthumb" [style.left.%]="opacityPct()"></div>
+        <div class="hfill opacity" [style.width.%]="store.opacityPct()"></div>
+        <div class="hthumb" [style.left.%]="store.opacityPct()"></div>
       </div>
-      <span class="hval">{{ opacityPct() | number:'1.0-0' }}%</span>
+      <span class="hval">{{ store.opacityPct() | number:'1.0-0' }}%</span>
     </div>
   </div>
 
   <!-- ===== Tool dock (right) ===== -->
   <div class="tooldock">
-    @for (b of dock; track b.id) {
+    @for (b of store.dock; track b.id) {
       <div class="tdwrap">
         <button
           class="tdbtn"
-          [class.active]="buttonActive(b)"
-          (click)="onDockClick(b)"
+          [class.active]="store.buttonActive(b)"
+          (click)="store.onDockClick(b)"
           [attr.aria-label]="b.id"
         >
-          <span class="ico" [innerHTML]="iconFor(buttonIcon(b))"></span>
-          @if (hasSubmenu(b)) { <span class="tdchev"></span> }
+          <span class="ico" [innerHTML]="store.iconFor(store.buttonIcon(b))"></span>
+          @if (store.hasSubmenu(b)) { <span class="tdchev"></span> }
         </button>
 
-        @if (openGroup() === b.id) {
+        @if (store.openGroup() === b.id) {
           <!-- one common submenu system for every dock button -->
           <div class="tdflyout styles">
-            @for (sec of submenuFor(b); track sec.title) {
+            @for (sec of store.submenuFor(b); track sec.title) {
               <div class="flyout-head">{{ sec.title }}</div>
               <div class="style-grid">
                 @for (it of sec.items; track it.id) {
                   <button
                     class="brush-card"
                     [class.active]="it.active"
-                    (click)="pickSubItem(it)"
+                    (click)="store.pickSubItem(it)"
                     [title]="it.hint"
                   >
                     <span class="brush-name">{{ it.name }}</span>
@@ -99,13 +99,13 @@
                 }
               </div>
             }
-            @if (menuHasFillOpacity(b)) {
-              <div class="flyout-head">Fill opacity · {{ fillOpacity() * 100 | number:'1.0-0' }}%</div>
+            @if (store.menuHasFillOpacity(b)) {
+              <div class="flyout-head">Fill opacity · {{ store.fillOpacity() * 100 | number:'1.0-0' }}%</div>
               <input
                 class="flyout-range"
                 type="range" min="0" max="100"
-                [value]="fillOpacity() * 100"
-                (input)="onFillOpacity($any($event.target).value)"
+                [value]="store.fillOpacity() * 100"
+                (input)="store.onFillOpacity($any($event.target).value)"
               />
             }
           </div>
@@ -117,91 +117,91 @@
   <!-- ===== Top bar ===== -->
   <div class="topbar">
     <div class="tb-group">
-      <button class="tb" [class.active]="backgroundOpen()" (click)="toggleBackground()" title="Background">
-        <span class="ico" [innerHTML]="iconFor('image')"></span>
+      <button class="tb" [class.active]="store.backgroundOpen()" (click)="store.toggleBackground()" title="Background">
+        <span class="ico" [innerHTML]="store.iconFor('image')"></span>
       </button>
-      <button class="tb" [class.active]="layersPanelOpen()" (click)="toggleLayers()" title="Layers">
-        <span class="ico" [innerHTML]="iconFor('layers')"></span>
+      <button class="tb" [class.active]="store.layersPanelOpen()" (click)="store.toggleLayers()" title="Layers">
+        <span class="ico" [innerHTML]="store.iconFor('layers')"></span>
       </button>
       <button class="tb" (click)="exportPng()" title="Export PNG">
-        <span class="ico" [innerHTML]="iconFor('download')"></span>
+        <span class="ico" [innerHTML]="store.iconFor('download')"></span>
       </button>
-      <button class="tb" [class.active]="moreOpen()" (click)="toggleMore()" title="More">
-        <span class="ico" [innerHTML]="iconFor('more')"></span>
+      <button class="tb" [class.active]="store.moreOpen()" (click)="store.toggleMore()" title="More">
+        <span class="ico" [innerHTML]="store.iconFor('more')"></span>
       </button>
     </div>
   </div>
 
   <!-- ===== More menu ===== -->
-  @if (moreOpen()) {
+  @if (store.moreOpen()) {
     <div class="popover more">
       <div class="pop-zoom">
         <button (click)="zoomBy(1/1.2)">−</button>
-        <span>{{ zoom() * 100 | number:'1.0-0' }}%</span>
+        <span>{{ store.zoom() * 100 | number:'1.0-0' }}%</span>
         <button (click)="zoomBy(1.2)">＋</button>
       </div>
-      <button class="pop-item" (click)="resetView(); moreOpen.set(false)">Reset view</button>
-      <button class="pop-item" (click)="clearActiveLayer(); moreOpen.set(false)">Clear layer</button>
-      <button class="pop-item danger" (click)="clearAll(); moreOpen.set(false)">Clear canvas</button>
+      <button class="pop-item" (click)="resetView(); store.moreOpen.set(false)">Reset view</button>
+      <button class="pop-item" (click)="clearActiveLayer(); store.moreOpen.set(false)">Clear layer</button>
+      <button class="pop-item danger" (click)="clearAll(); store.moreOpen.set(false)">Clear canvas</button>
     </div>
   }
 
   <!-- ===== Color popover ===== -->
-  @if (colorPickerOpen()) {
+  @if (store.colorPickerOpen()) {
     <div class="popover color">
       <label class="color-row">
         <span>Stroke</span>
-        <input type="color" [value]="outlineColor()" (input)="outlineColor.set($any($event.target).value)" />
+        <input type="color" [value]="store.outlineColor()" (input)="store.outlineColor.set($any($event.target).value)" />
       </label>
       <label class="color-row">
         <span>Fill</span>
-        <input type="color" [value]="fillColor()" (input)="fillColor.set($any($event.target).value)" />
+        <input type="color" [value]="store.fillColor()" (input)="store.fillColor.set($any($event.target).value)" />
       </label>
       <div class="swatches">
         @for (c of ['#101114','#ffffff','#e5484d','#f5a524','#f6d34a','#30a46c','#3b82f6','#8b5cf6','#ec4899','#8a5a3c']; track c) {
-          <button class="sw" [style.background]="c" (click)="outlineColor.set(c)"></button>
+          <button class="sw" [style.background]="c" (click)="store.outlineColor.set(c)"></button>
         }
       </div>
     </div>
   }
 
   <!-- ===== Background popover ===== -->
-  @if (backgroundOpen()) {
+  @if (store.backgroundOpen()) {
     <div class="popover bg">
       <div class="seg">
-        <button [class.on]="bgKind() === 'color'" (click)="setBgKind('color')">Color</button>
-        <button [class.on]="bgKind() === 'texture'" (click)="setBgKind('texture')">Texture</button>
-        <button [class.on]="bgKind() === 'image'" (click)="setBgKind('image')">Image</button>
+        <button [class.on]="store.bgKind() === 'color'" (click)="setBgKind('color')">Color</button>
+        <button [class.on]="store.bgKind() === 'texture'" (click)="setBgKind('texture')">Texture</button>
+        <button [class.on]="store.bgKind() === 'image'" (click)="setBgKind('image')">Image</button>
       </div>
 
-      @if (bgKind() === 'color') {
+      @if (store.bgKind() === 'color') {
         <label class="color-row">
           <span>Color</span>
-          <input type="color" [value]="bgColor()" (input)="setBgColor($any($event.target).value)" />
+          <input type="color" [value]="store.bgColor()" (input)="setBgColor($any($event.target).value)" />
         </label>
         <div class="swatches">
-          @for (c of bgColors; track c) {
+          @for (c of store.bgColors; track c) {
             <button class="sw" [style.background]="c" (click)="setBgColor(c)"></button>
           }
         </div>
       }
 
-      @if (bgKind() === 'texture') {
+      @if (store.bgKind() === 'texture') {
         <div class="bg-textures">
-          @for (t of bgTextures; track t.id) {
-            <button class="bg-tex" [class.on]="bgTexture() === t.id" (click)="setBgTexture(t.id)">
+          @for (t of store.bgTextures; track t.id) {
+            <button class="bg-tex" [class.on]="store.bgTexture() === t.id" (click)="setBgTexture(t.id)">
               {{ t.name }}
             </button>
           }
         </div>
       }
 
-      @if (bgKind() === 'image') {
+      @if (store.bgKind() === 'image') {
         <label class="bg-upload">
           <input type="file" accept="image/*" (change)="onBgImage($event)" hidden />
-          <span>{{ bgImageUrl() ? 'Replace image…' : 'Upload image…' }}</span>
+          <span>{{ store.bgImageUrl() ? 'Replace image…' : 'Upload image…' }}</span>
         </label>
-        @if (bgImageUrl()) {
+        @if (store.bgImageUrl()) {
           <button class="pop-item danger" (click)="removeBgImage()">Remove image</button>
         }
       }
@@ -210,19 +210,19 @@
 
 
   <!-- ===== Layers ===== -->
-  @if (layersPanelOpen()) {
+  @if (store.layersPanelOpen()) {
     <div class="sheet layers">
       <div class="sheet-head">
         <span>Layers</span>
         <button class="sheet-x add" (click)="addLayer()" title="Add layer">
-          <span class="ico" [innerHTML]="iconFor('plus')"></span>
+          <span class="ico" [innerHTML]="store.iconFor('plus')"></span>
         </button>
       </div>
       <div class="layer-list">
-        @for (l of layersReversed(); track l.id) {
-          <div class="layer" [class.active]="l.id === activeLayerId()" (click)="selectLayer(l.id)">
+        @for (l of store.layersReversed(); track l.id) {
+          <div class="layer" [class.active]="l.id === store.activeLayerId()" (click)="selectLayer(l.id)">
             <button class="layer-eye" (click)="toggleLayerVisible(l.id); $event.stopPropagation()" [title]="l.visible ? 'Hide' : 'Show'">
-              <span class="ico" [innerHTML]="iconFor(l.visible ? 'eye' : 'eyeoff')"></span>
+              <span class="ico" [innerHTML]="store.iconFor(l.visible ? 'eye' : 'eyeoff')"></span>
             </button>
             <div class="layer-body">
               <div class="layer-name">{{ l.name }}</div>
@@ -232,7 +232,7 @@
                   (click)="$event.stopPropagation()"
                   (change)="setLayerBlend(l.id, $any($event.target).value)"
                 >
-                  @for (b of blendModes; track b.value) {
+                  @for (b of store.blendModes; track b.value) {
                     <option [value]="b.value">{{ b.label }}</option>
                   }
                 </select>
@@ -249,7 +249,7 @@
               <button (click)="moveLayer(l.id, 1); $event.stopPropagation()" title="Up">▲</button>
               <button (click)="moveLayer(l.id, -1); $event.stopPropagation()" title="Down">▼</button>
               <button class="danger" (click)="deleteLayer(l.id); $event.stopPropagation()" title="Delete">
-                <span class="ico" [innerHTML]="iconFor('close')"></span>
+                <span class="ico" [innerHTML]="store.iconFor('close')"></span>
               </button>
             </div>
           </div>
