@@ -117,6 +117,9 @@
   <!-- ===== Top bar ===== -->
   <div class="topbar">
     <div class="tb-group">
+      <button class="tb" [class.active]="backgroundOpen()" (click)="toggleBackground()" title="Background">
+        <span class="ico" [innerHTML]="iconFor('image')"></span>
+      </button>
       <button class="tb" [class.active]="layersPanelOpen()" (click)="toggleLayers()" title="Layers">
         <span class="ico" [innerHTML]="iconFor('layers')"></span>
       </button>
@@ -159,6 +162,49 @@
           <button class="sw" [style.background]="c" (click)="outlineColor.set(c)"></button>
         }
       </div>
+    </div>
+  }
+
+  <!-- ===== Background popover ===== -->
+  @if (backgroundOpen()) {
+    <div class="popover bg">
+      <div class="seg">
+        <button [class.on]="bgKind() === 'color'" (click)="setBgKind('color')">Color</button>
+        <button [class.on]="bgKind() === 'texture'" (click)="setBgKind('texture')">Texture</button>
+        <button [class.on]="bgKind() === 'image'" (click)="setBgKind('image')">Image</button>
+      </div>
+
+      @if (bgKind() === 'color') {
+        <label class="color-row">
+          <span>Color</span>
+          <input type="color" [value]="bgColor()" (input)="setBgColor($any($event.target).value)" />
+        </label>
+        <div class="swatches">
+          @for (c of bgColors; track c) {
+            <button class="sw" [style.background]="c" (click)="setBgColor(c)"></button>
+          }
+        </div>
+      }
+
+      @if (bgKind() === 'texture') {
+        <div class="bg-textures">
+          @for (t of bgTextures; track t.id) {
+            <button class="bg-tex" [class.on]="bgTexture() === t.id" (click)="setBgTexture(t.id)">
+              {{ t.name }}
+            </button>
+          }
+        </div>
+      }
+
+      @if (bgKind() === 'image') {
+        <label class="bg-upload">
+          <input type="file" accept="image/*" (change)="onBgImage($event)" hidden />
+          <span>{{ bgImageUrl() ? 'Replace image…' : 'Upload image…' }}</span>
+        </label>
+        @if (bgImageUrl()) {
+          <button class="pop-item danger" (click)="removeBgImage()">Remove image</button>
+        }
+      }
     </div>
   }
 

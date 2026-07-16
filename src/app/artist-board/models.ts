@@ -99,23 +99,48 @@ export const PENS: { id: PenStyle; name: string; hint: string }[] = [
   { id: 'fountain', name: 'Fountain', hint: 'Speed-tapered flowing nib' },
 ];
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * A retained vector shape (line / rectangle / ellipse). Unlike freehand strokes
+ * these are NOT baked into the layer bitmap — they are kept as objects and
+ * re-rendered every frame, so they can be hit-tested and re-filled as a whole.
+ * Coordinates are in css pixels.
+ */
+export interface ShapeObject {
+  id: string;
+  tool: 'line' | 'rect' | 'ellipse';
+  a: Point;
+  b: Point;
+  stroke: string;
+  strokeWidth: number;
+  strokeOpacity: number;
+  fill: string;
+  fillOpacity: number;
+}
+
 export interface Layer {
   id: string;
   name: string;
   visible: boolean;
   opacity: number; // 0..1
   blend: BlendMode;
-  canvas: HTMLCanvasElement;
+  canvas: HTMLCanvasElement; // raster content (pen / brush / eraser)
   ctx: CanvasRenderingContext2D;
+  shapes: ShapeObject[]; // retained vector shapes, drawn above the raster
+}
+
+/** full restorable state of a layer for undo/redo (raster + shapes) */
+export interface LayerState {
+  bitmap: ImageData;
+  shapes: ShapeObject[];
 }
 
 export interface HistoryEntry {
   layerId: string;
-  before: ImageData;
-  after: ImageData;
-}
-
-export interface Point {
-  x: number;
-  y: number;
+  before: LayerState;
+  after: LayerState;
 }

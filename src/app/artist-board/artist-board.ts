@@ -12,6 +12,11 @@ import {
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { ICONS } from './engine/icons';
+import { paintBrushSegment } from './engine/brushes';
+import { floodFill, rgbaFromColor } from './engine/flood-fill';
+import { BgTexture, paintTexture } from './engine/textures';
+import { drawShapeObject, drawShapePath, pointInShape, ShapeTool } from './engine/shapes';
 import {
   BLEND_MODES,
   BRUSHES,
@@ -19,39 +24,17 @@ import {
   BrushStyle,
   HistoryEntry,
   Layer,
+  LayerState,
   PENS,
   PenStyle,
   Point,
+  ShapeObject,
   TOOLS,
   ToolId,
 } from './models';
 
 let uid = 0;
 const nextId = () => `layer-${++uid}`;
-
-const ICONS: Record<string, string> = {
-  move: '<svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>',
-  pen: '<svg viewBox="0 0 24 24"><path d="M3 21l3.5-.8L20 6.7a2 2 0 0 0 0-2.8l-.9-.9a2 2 0 0 0-2.8 0L3 16.5 3 21z"/><path d="M14.5 5.5l4 4"/></svg>',
-  brush: '<svg viewBox="0 0 24 24"><path d="M3 21c3 0 5-1.5 5-4 0-1.5-1-2.5-2.5-2.5S3 15.5 3 17c0 2 0 4 0 4z"/><path d="M8 15L19 4a2 2 0 0 1 3 3L11 18"/></svg>',
-  eraser: '<svg viewBox="0 0 24 24"><path d="M4 15l7-7 6 6-4 4H8l-4-4z"/><path d="M11 8l5-5a2 2 0 0 1 3 0l3 3a2 2 0 0 1 0 3l-5 5"/><path d="M6 21h14"/></svg>',
-  line: '<svg viewBox="0 0 24 24"><path d="M4 20L20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/></svg>',
-  rect: '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>',
-  ellipse: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>',
-  text: '<svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13M9 19h6"/></svg>',
-  fill: '<svg viewBox="0 0 24 24"><path d="M4 11l7-7 8 8-7 7a2 2 0 0 1-3 0l-5-5a2 2 0 0 1 0-3z"/><path d="M11 4l2 2"/><path d="M20 15c0 1.5-1 3-1 3s-1-1.5-1-3a1 1 0 0 1 2 0z"/></svg>',
-  eyedropper: '<svg viewBox="0 0 24 24"><path d="M4 20l1-4 9-9 3 3-9 9-4 1z"/><path d="M14 5l2-2a2 2 0 0 1 3 3l-2 2"/></svg>',
-  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
-  layers: '<svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
-  undo: '<svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-3"/></svg>',
-  redo: '<svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h3"/></svg>',
-  settings: '<svg viewBox="0 0 24 24"><path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg>',
-  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4"/><path d="M5 20h14"/></svg>',
-  more: '<svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg>',
-  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
-  eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>',
-  eyeoff: '<svg viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M9.5 9.6a2.6 2.6 0 0 0 3.5 3.7M6.3 6.4C3.9 7.9 2 12 2 12s3.5 7 10 7c1.7 0 3.2-.5 4.5-1.1M10 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-2.4 3.2"/></svg>',
-  close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-};
 
 /** a dock (toolbar) button, optionally owning a submenu of options */
 interface DockButton {
@@ -137,10 +120,25 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   readonly fontFamily = signal<'sans' | 'serif' | 'mono'>('sans');
   readonly fillTolerance = signal(32);
 
+  // ---- canvas background ----
+  readonly bgKind = signal<'color' | 'texture' | 'image'>('color');
+  readonly bgColor = signal('#ffffff');
+  readonly bgTexture = signal<BgTexture>('dots');
+  readonly bgImageUrl = signal<string | null>(null);
+  private bgImageEl: HTMLImageElement | null = null;
+  readonly bgColors = ['#ffffff', '#f6f1e7', '#0f1014', '#fde2e4', '#e0f2fe', '#e8f5e9', '#fff4d6'];
+  readonly bgTextures: { id: BgTexture; name: string }[] = [
+    { id: 'dots', name: 'Dots' },
+    { id: 'grid', name: 'Grid' },
+    { id: 'lines', name: 'Lines' },
+    { id: 'paper', name: 'Paper' },
+  ];
+
   readonly layers = signal<Layer[]>([]);
   readonly activeLayerId = signal<string>('');
   readonly layersPanelOpen = signal(false);
   readonly colorPickerOpen = signal(false);
+  readonly backgroundOpen = signal(false);
   readonly moreOpen = signal(false);
 
   readonly canUndo = signal(false);
@@ -169,6 +167,9 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // ---- engine internals ----
   private board!: HTMLCanvasElement;
   private bctx!: CanvasRenderingContext2D;
+  // reusable offscreen buffer to composite one layer (raster + shapes) per frame
+  private layerBuf!: HTMLCanvasElement;
+  private lbctx!: CanvasRenderingContext2D;
   private dpr = Math.min(window.devicePixelRatio || 1, 2);
   private width = 0; // css px
   private height = 0;
@@ -179,7 +180,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // trailing midpoint of the smoothed pen curve (quadratic-through-midpoints)
   private prevMid: Point = { x: 0, y: 0 };
   private points: Point[] = [];
-  private snapshotBefore: ImageData | null = null;
+  private snapshotBefore: LayerState | null = null;
 
   // freehand strokes are painted opaque onto this off-screen buffer, then
   // flattened onto the layer once at the chosen opacity — so overlapping
@@ -203,8 +204,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.resizeToStage(true);
     // seed with two layers, like a real editor
     const bg = this.makeLayer('Background');
-    bg.ctx.fillStyle = '#ffffff';
-    bg.ctx.fillRect(0, 0, this.width, this.height);
+    this.paintBackground(bg);
     const l1 = this.makeLayer('Layer 1');
     this.layers.set([bg, l1]);
     this.activeLayerId.set(l1.id);
@@ -237,6 +237,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       blend: 'source-over',
       canvas,
       ctx,
+      shapes: [],
     };
   }
 
@@ -302,6 +303,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (!layer) return;
     const before = this.snapshot(layer);
     layer.ctx.clearRect(0, 0, this.width, this.height);
+    layer.shapes = [];
     const after = this.snapshot(layer);
     this.pushHistory({ layerId: layer.id, before, after });
     this.render();
@@ -318,18 +320,33 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const activeId = this.activeLayerId();
     for (const layer of this.layers()) {
       if (!layer.visible || layer.opacity <= 0) continue;
+      // composite this layer's raster + shapes (+ live stroke) into the buffer
+      // at full alpha, then blit once at the layer's opacity/blend.
+      const bx = this.lbctx;
+      bx.setTransform(1, 0, 0, 1, 0, 0);
+      bx.globalAlpha = 1;
+      bx.globalCompositeOperation = 'source-over';
+      bx.clearRect(0, 0, this.layerBuf.width, this.layerBuf.height);
+      bx.drawImage(layer.canvas, 0, 0);
+      this.drawShapesToCtx(bx, layer.shapes);
+      // live preview of the in-progress freehand stroke, at its final opacity
+      if (this.strokeBuffer && layer.id === activeId) {
+        bx.globalAlpha = this.outlineOpacity();
+        bx.drawImage(this.strokeBuffer, 0, 0);
+        bx.globalAlpha = 1;
+      }
+
       this.bctx.globalAlpha = layer.opacity;
       this.bctx.globalCompositeOperation = layer.blend;
-      this.bctx.drawImage(layer.canvas, 0, 0);
-      // live preview of the in-progress freehand stroke, sitting on the active
-      // layer at the final opacity so what you see is what you commit.
-      if (this.strokeBuffer && layer.id === activeId) {
-        this.bctx.globalAlpha = layer.opacity * this.outlineOpacity();
-        this.bctx.drawImage(this.strokeBuffer, 0, 0);
-      }
+      this.bctx.drawImage(this.layerBuf, 0, 0);
     }
     this.bctx.globalAlpha = 1;
     this.bctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** draw a layer's retained shapes onto a device-resolution context */
+  private drawShapesToCtx(ctx: CanvasRenderingContext2D, shapes: ShapeObject[]): void {
+    for (const s of shapes) drawShapeObject(ctx, s, this.dpr);
   }
 
   private paintCheckerboard(): void {
@@ -346,6 +363,97 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
         }
       }
     }
+  }
+
+  // =========================================================================
+  // Canvas background (the 'Background' layer)
+  // =========================================================================
+  private backgroundLayer(): Layer | undefined {
+    return this.layers().find((l) => l.name === 'Background');
+  }
+
+  /** repaint the background layer from the current bg* settings, then redraw */
+  applyBackground(): void {
+    const bg = this.backgroundLayer();
+    if (bg) this.paintBackground(bg);
+    this.render();
+  }
+
+  /** paint the chosen background (color / texture / image) onto a layer */
+  private paintBackground(layer: Layer): void {
+    const ctx = layer.ctx;
+    const w = this.width;
+    const h = this.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (this.bgKind() === 'image' && this.bgImageEl) {
+      // opaque base under any transparent image, then cover-fit
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      const img = this.bgImageEl;
+      const ir = img.width / img.height;
+      const cr = w / h;
+      let dw: number;
+      let dh: number;
+      if (ir > cr) {
+        dh = h;
+        dw = h * ir;
+      } else {
+        dw = w;
+        dh = w / ir;
+      }
+      ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      return;
+    }
+
+    if (this.bgKind() === 'texture') {
+      paintTexture(ctx, this.bgTexture(), w, h);
+      return;
+    }
+
+    // solid color (also the fallback when 'image' has no file yet)
+    ctx.fillStyle = this.bgKind() === 'image' ? '#ffffff' : this.bgColor();
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  setBgKind(k: 'color' | 'texture' | 'image'): void {
+    this.bgKind.set(k);
+    this.applyBackground();
+  }
+  setBgColor(c: string): void {
+    this.bgColor.set(c);
+    this.bgKind.set('color');
+    this.applyBackground();
+  }
+  setBgTexture(t: BgTexture): void {
+    this.bgTexture.set(t);
+    this.bgKind.set('texture');
+    this.applyBackground();
+  }
+  onBgImage(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        this.bgImageEl = img;
+        this.bgImageUrl.set(url);
+        this.bgKind.set('image');
+        this.applyBackground();
+      };
+      img.src = url;
+    };
+    reader.readAsDataURL(file);
+  }
+  removeBgImage(): void {
+    this.bgImageEl = null;
+    this.bgImageUrl.set(null);
+    this.bgKind.set('color');
+    this.applyBackground();
   }
 
   // =========================================================================
@@ -368,6 +476,14 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.board.style.width = w + 'px';
     this.board.style.height = h + 'px';
 
+    // keep the per-layer composite buffer matched to the board size
+    if (!this.layerBuf) {
+      this.layerBuf = document.createElement('canvas');
+      this.lbctx = this.layerBuf.getContext('2d')!;
+    }
+    this.layerBuf.width = this.board.width;
+    this.layerBuf.height = this.board.height;
+
     if (!initial && oldLayers.length) {
       // re-create layer bitmaps at the new size, preserving content
       const migrated = oldLayers.map((l) => {
@@ -376,12 +492,15 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
         nl.visible = l.visible;
         nl.opacity = l.opacity;
         nl.blend = l.blend;
+        // shapes are resolution-independent objects — carry them across as-is
+        nl.shapes = l.shapes;
         if (l.name === 'Background') {
-          // the paper always fills the whole board, even when it grows
-          nl.ctx.fillStyle = '#ffffff';
-          nl.ctx.fillRect(0, 0, w, h);
+          // background is procedural — repaint fresh at the new size instead
+          // of copying the old bitmap (which would leave the grown area blank)
+          this.paintBackground(nl);
+        } else {
+          nl.ctx.drawImage(l.canvas, 0, 0, oldW, oldH, 0, 0, oldW, oldH);
         }
-        nl.ctx.drawImage(l.canvas, 0, 0, oldW, oldH, 0, 0, oldW, oldH);
         return nl;
       });
       this.layers.set(migrated);
@@ -411,6 +530,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.activePointerId = ev.pointerId;
     // tapping the canvas dismisses transient floating menus
     if (this.colorPickerOpen()) this.colorPickerOpen.set(false);
+    if (this.backgroundOpen()) this.backgroundOpen.set(false);
     if (this.moreOpen()) this.moreOpen.set(false);
     if (this.openGroup()) this.openGroup.set(null);
     const tool = this.activeTool();
@@ -444,7 +564,15 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.snapshotBefore = this.snapshot(layer);
 
     if (tool === 'fill') {
-      this.floodFill(layer, p);
+      // a click on a retained shape fills that whole shape (no gaps to leak
+      // through); otherwise fall back to a pixel flood fill.
+      const shape = this.hitTestShape(layer, p);
+      if (shape) {
+        shape.fill = this.fillColor();
+        shape.fillOpacity = this.fillOpacity();
+      } else {
+        this.floodFill(layer, p);
+      }
       this.commitStroke(layer);
       this.drawing = false;
       return;
@@ -569,7 +697,9 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const p = this.toStagePoint(ev);
 
     if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
-      this.drawShape(layer.ctx, tool, this.start, p, 1);
+      // shapes are retained as objects (not baked into the raster) so they can
+      // be hit-tested and filled as a whole later.
+      layer.shapes = [...layer.shapes, this.makeShape(tool, this.start, p)];
     } else if (tool === 'pen' && this.sbctx) {
       // finish the smoothed curve at the true last point (the last quadratic
       // only reached the midpoint of the final pair of samples).
@@ -631,7 +761,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     ctx.strokeStyle = this.outlineColor();
 
     if (tool === 'brush') {
-      this.brushSegment(ctx, a, b);
+      paintBrushSegment(ctx, this.brushStyle(), a, b, {
+        color: this.outlineColor(),
+        width: this.lineWidth(),
+        nibAngle: this.nibAngle,
+      });
       ctx.globalAlpha = 1;
       return;
     }
@@ -646,201 +780,47 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     ctx.stroke();
   }
 
-  // =========================================================================
-  // Natural-media brush engines. Each paints one segment (a -> b) onto the
-  // stroke buffer. Textured brushes intentionally build up alpha within a
-  // stroke (that IS the grain); the whole buffer is later flattened onto the
-  // layer at the outline opacity.
-  // =========================================================================
-  private brushSegment(ctx: CanvasRenderingContext2D, a: Point, b: Point): void {
-    const color = this.outlineColor();
-    const w = this.lineWidth();
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 0.0001;
-    const ux = dx / len;
-    const uy = dy / len;
-    const nx = -uy; // unit normal
-    const ny = ux;
-
-    switch (this.brushStyle()) {
-      case 'calligraphy': {
-        // fixed-angle flat nib -> thick across the nib, thin along it
-        const half = w / 2;
-        const px = Math.cos(this.nibAngle) * half;
-        const py = Math.sin(this.nibAngle) * half;
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(a.x + px, a.y + py);
-        ctx.lineTo(a.x - px, a.y - py);
-        ctx.lineTo(b.x - px, b.y - py);
-        ctx.lineTo(b.x + px, b.y + py);
-        ctx.closePath();
-        ctx.fill();
-        break;
-      }
-
-      case 'ink': {
-        // speed-tapered round: slow = fat, fast = thin, like a loaded brush
-        const taper = Math.max(0.22, Math.min(1, 1 - len / 130));
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = color;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = Math.max(0.5, w * taper);
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-        // a couple of faint edge fibers for organic ink bleed
-        if (w > 6) {
-          ctx.globalAlpha = 0.18;
-          ctx.lineWidth = 1;
-          for (let s = -1; s <= 1; s += 2) {
-            const o = (w * taper) / 2 - 0.5;
-            ctx.beginPath();
-            ctx.moveTo(a.x + nx * o * s, a.y + ny * o * s);
-            ctx.lineTo(b.x + nx * o * s, b.y + ny * o * s);
-            ctx.stroke();
-          }
-        }
-        break;
-      }
-
-      case 'bristle': {
-        // many thin parallel sub-strokes; random gaps + alpha = dry streaks
-        const n = Math.max(4, Math.round(w / 2.2));
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = color;
-        for (let i = 0; i < n; i++) {
-          if (Math.random() < 0.14) continue; // broken bristle
-          const o = (i / (n - 1) - 0.5) * w;
-          const wob = (Math.random() - 0.5) * 1.5;
-          ctx.globalAlpha = 0.22 + Math.random() * 0.5;
-          ctx.lineWidth = 0.6 + Math.random() * 1.4;
-          ctx.beginPath();
-          ctx.moveTo(a.x + nx * (o + wob), a.y + ny * (o + wob));
-          ctx.lineTo(b.x + nx * o, b.y + ny * o);
-          ctx.stroke();
-        }
-        break;
-      }
-
-      case 'charcoal': {
-        // scatter grain across the width, denser in the middle
-        const half = w / 2;
-        const steps = Math.max(1, Math.round(len));
-        const perStep = Math.max(2, Math.round(w / 3));
-        ctx.fillStyle = color;
-        for (let s = 0; s <= steps; s++) {
-          const t = s / steps;
-          const cx = a.x + dx * t;
-          const cy = a.y + dy * t;
-          for (let k = 0; k < perStep; k++) {
-            const off = (Math.random() - 0.5) * 2 * half;
-            const edge = 1 - Math.abs(off) / half; // middle-heavy
-            if (Math.random() > edge * 0.9 + 0.1) continue;
-            const gr = 0.4 + Math.random() * 1.5;
-            ctx.globalAlpha = (0.1 + Math.random() * 0.3) * edge;
-            ctx.beginPath();
-            ctx.arc(cx + nx * off, cy + ny * off, gr, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-        break;
-      }
-
-      case 'airbrush': {
-        // soft spray of low-alpha specks distributed along the whole segment
-        // (centre-weighted radius), so fast strokes stay a continuous band
-        const r = w / 2;
-        const density = Math.floor((len + 4) * (r / 8 + 0.6)) + 8;
-        ctx.fillStyle = color;
-        for (let i = 0; i < density; i++) {
-          const t = Math.random();
-          const cx = a.x + dx * t;
-          const cy = a.y + dy * t;
-          const ang = Math.random() * Math.PI * 2;
-          const rr = r * Math.pow(Math.random(), 0.6);
-          ctx.globalAlpha = 0.05 + Math.random() * 0.08;
-          ctx.beginPath();
-          ctx.arc(
-            cx + Math.cos(ang) * rr,
-            cy + Math.sin(ang) * rr,
-            0.7 + Math.random() * 0.6,
-            0,
-            Math.PI * 2,
-          );
-          ctx.fill();
-        }
-        break;
-      }
-
-      case 'pencil': {
-        // fine jittered graphite lines, low alpha builds tone
-        const n = Math.max(2, Math.round(w / 2.5));
-        ctx.strokeStyle = color;
-        ctx.lineCap = 'round';
-        const jit = () => (Math.random() - 0.5) * 1.3;
-        for (let i = 0; i < n; i++) {
-          if (Math.random() < 0.3) continue;
-          const o = (Math.random() - 0.5) * w * 0.9;
-          ctx.globalAlpha = 0.06 + Math.random() * 0.2;
-          ctx.lineWidth = 0.5 + Math.random() * 0.6;
-          ctx.beginPath();
-          ctx.moveTo(a.x + nx * o + jit(), a.y + ny * o + jit());
-          ctx.lineTo(b.x + nx * o + jit(), b.y + ny * o + jit());
-          ctx.stroke();
-        }
-        break;
-      }
-    }
-  }
-
-  private drawShape(
-    ctx: CanvasRenderingContext2D,
-    tool: ToolId,
-    a: Point,
-    b: Point,
-    dpr: number,
-  ): void {
+  /** live shape preview using the current tool's stroke/fill settings */
+  private drawShape(ctx: CanvasRenderingContext2D, tool: ShapeTool, a: Point, b: Point, dpr: number): void {
     ctx.save();
     ctx.scale(dpr, dpr);
-    const x = Math.min(a.x, b.x);
-    const y = Math.min(a.y, b.y);
-    const w = Math.abs(b.x - a.x);
-    const h = Math.abs(b.y - a.y);
-    ctx.lineWidth = this.lineWidth();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    if (tool === 'line') {
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-    } else if (tool === 'rect') {
-      ctx.rect(x, y, w, h);
-    } else if (tool === 'ellipse') {
-      ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-    }
-
-    if (tool !== 'line') {
-      ctx.globalAlpha = this.fillOpacity();
-      ctx.fillStyle = this.fillColor();
-      ctx.fill();
-    }
-    if (this.lineWidth() > 0) {
-      ctx.globalAlpha = this.outlineOpacity();
-      ctx.strokeStyle = this.outlineColor();
-      ctx.stroke();
-    }
+    drawShapePath(ctx, tool, a, b, {
+      stroke: this.outlineColor(),
+      strokeWidth: this.lineWidth(),
+      strokeOpacity: this.outlineOpacity(),
+      fill: this.fillColor(),
+      fillOpacity: this.fillOpacity(),
+    });
     ctx.restore();
   }
 
   // =========================================================================
-  // Flood fill (scanline, tolerance-based)
+  // Retained shapes (line / rect / ellipse as objects)
   // =========================================================================
+  private makeShape(tool: ShapeTool, a: Point, b: Point): ShapeObject {
+    return {
+      id: nextId(),
+      tool,
+      a: { ...a },
+      b: { ...b },
+      stroke: this.outlineColor(),
+      strokeWidth: this.lineWidth(),
+      strokeOpacity: this.outlineOpacity(),
+      fill: this.fillColor(),
+      fillOpacity: this.fillOpacity(),
+    };
+  }
+
+  /** topmost fillable shape (rect/ellipse) under the point, or null */
+  private hitTestShape(layer: Layer, p: Point): ShapeObject | null {
+    for (let i = layer.shapes.length - 1; i >= 0; i--) {
+      const s = layer.shapes[i];
+      if (s.tool === 'line') continue; // lines enclose no region to fill
+      if (pointInShape(s, p)) return s;
+    }
+    return null;
+  }
+
   private floodFill(layer: Layer, p: Point): void {
     const ctx = layer.ctx;
     const W = layer.canvas.width;
@@ -848,83 +828,9 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const sx = Math.floor(p.x * this.dpr);
     const sy = Math.floor(p.y * this.dpr);
     if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
-
     const img = ctx.getImageData(0, 0, W, H);
-    const data = img.data;
-    const target = this.pixelAt(data, (sy * W + sx) * 4);
-    const fill = this.rgbaFromColor(this.fillColor(), this.fillOpacity());
-    if (this.colorsEqual(target, fill, 2)) return;
-
-    const tol = this.fillTolerance();
-    const stack = [[sx, sy]];
-    const matches = (idx: number) =>
-      this.within(data, idx, target, tol);
-
-    while (stack.length) {
-      const [px, py] = stack.pop()!;
-      let x = px;
-      const rowStart = py * W;
-      while (x >= 0 && matches((rowStart + x) * 4)) x--;
-      x++;
-      let up = false;
-      let down = false;
-      while (x < W && matches((rowStart + x) * 4)) {
-        this.setPixel(data, (rowStart + x) * 4, fill);
-        if (py > 0) {
-          const upIdx = ((py - 1) * W + x) * 4;
-          if (matches(upIdx)) {
-            if (!up) {
-              stack.push([x, py - 1]);
-              up = true;
-            }
-          } else up = false;
-        }
-        if (py < H - 1) {
-          const dnIdx = ((py + 1) * W + x) * 4;
-          if (matches(dnIdx)) {
-            if (!down) {
-              stack.push([x, py + 1]);
-              down = true;
-            }
-          } else down = false;
-        }
-        x++;
-      }
-    }
+    floodFill(img, sx, sy, rgbaFromColor(this.fillColor(), this.fillOpacity()), this.fillTolerance());
     ctx.putImageData(img, 0, 0);
-  }
-
-  private pixelAt(d: Uint8ClampedArray, i: number): number[] {
-    return [d[i], d[i + 1], d[i + 2], d[i + 3]];
-  }
-  private setPixel(d: Uint8ClampedArray, i: number, c: number[]): void {
-    d[i] = c[0];
-    d[i + 1] = c[1];
-    d[i + 2] = c[2];
-    d[i + 3] = c[3];
-  }
-  private within(d: Uint8ClampedArray, i: number, t: number[], tol: number): boolean {
-    return (
-      Math.abs(d[i] - t[0]) <= tol &&
-      Math.abs(d[i + 1] - t[1]) <= tol &&
-      Math.abs(d[i + 2] - t[2]) <= tol &&
-      Math.abs(d[i + 3] - t[3]) <= tol
-    );
-  }
-  private colorsEqual(a: number[], b: number[], tol: number): boolean {
-    return (
-      Math.abs(a[0] - b[0]) <= tol &&
-      Math.abs(a[1] - b[1]) <= tol &&
-      Math.abs(a[2] - b[2]) <= tol &&
-      Math.abs(a[3] - b[3]) <= tol
-    );
-  }
-  private rgbaFromColor(hex: string, alpha: number): number[] {
-    const c = hex.replace('#', '');
-    const r = parseInt(c.substring(0, 2), 16);
-    const g = parseInt(c.substring(2, 4), 16);
-    const b = parseInt(c.substring(4, 6), 16);
-    return [r, g, b, Math.round(alpha * 255)];
   }
 
   // =========================================================================
@@ -985,8 +891,20 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // =========================================================================
   // History (undo / redo)
   // =========================================================================
-  private snapshot(layer: Layer): ImageData {
-    return layer.ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height);
+  private snapshot(layer: Layer): LayerState {
+    return {
+      bitmap: layer.ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height),
+      shapes: this.cloneShapes(layer.shapes),
+    };
+  }
+
+  private cloneShapes(shapes: ShapeObject[]): ShapeObject[] {
+    return shapes.map((s) => ({ ...s, a: { ...s.a }, b: { ...s.b } }));
+  }
+
+  private restore(layer: Layer, state: LayerState): void {
+    layer.ctx.putImageData(state.bitmap, 0, 0);
+    layer.shapes = this.cloneShapes(state.shapes);
   }
 
   private commitStroke(layer: Layer): void {
@@ -1027,7 +945,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const entry = this.undoStack.pop();
     if (!entry) return;
     const layer = this.layers().find((l) => l.id === entry.layerId);
-    if (layer) layer.ctx.putImageData(entry.before, 0, 0);
+    if (layer) this.restore(layer, entry.before);
     this.redoStack.push(entry);
     this.syncHistoryFlags();
     this.render();
@@ -1037,7 +955,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const entry = this.redoStack.pop();
     if (!entry) return;
     const layer = this.layers().find((l) => l.id === entry.layerId);
-    if (layer) layer.ctx.putImageData(entry.after, 0, 0);
+    if (layer) this.restore(layer, entry.after);
     this.undoStack.push(entry);
     this.syncHistoryFlags();
     this.render();
@@ -1053,9 +971,18 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const octx = out.getContext('2d')!;
     for (const layer of this.layers()) {
       if (!layer.visible || layer.opacity <= 0) continue;
+      // composite raster + shapes for the layer, then blit at its opacity/blend
+      const bx = this.lbctx;
+      bx.setTransform(1, 0, 0, 1, 0, 0);
+      bx.globalAlpha = 1;
+      bx.globalCompositeOperation = 'source-over';
+      bx.clearRect(0, 0, this.layerBuf.width, this.layerBuf.height);
+      bx.drawImage(layer.canvas, 0, 0);
+      this.drawShapesToCtx(bx, layer.shapes);
+
       octx.globalAlpha = layer.opacity;
       octx.globalCompositeOperation = layer.blend;
-      octx.drawImage(layer.canvas, 0, 0);
+      octx.drawImage(this.layerBuf, 0, 0);
     }
     const a = document.createElement('a');
     a.href = out.toDataURL('image/png');
@@ -1066,12 +993,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   clearAll(): void {
     for (const layer of this.layers()) {
       if (layer.name === 'Background') {
-        layer.ctx.clearRect(0, 0, this.width, this.height);
-        layer.ctx.fillStyle = '#ffffff';
-        layer.ctx.fillRect(0, 0, this.width, this.height);
+        this.paintBackground(layer);
       } else {
         layer.ctx.clearRect(0, 0, this.width, this.height);
       }
+      layer.shapes = [];
     }
     this.undoStack = [];
     this.redoStack = [];
@@ -1297,6 +1223,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.layersPanelOpen.set(next);
     if (next) {
       this.colorPickerOpen.set(false);
+      this.backgroundOpen.set(false);
       this.moreOpen.set(false);
     }
   }
@@ -1306,6 +1233,17 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.colorPickerOpen.set(next);
     if (next) {
       this.layersPanelOpen.set(false);
+      this.backgroundOpen.set(false);
+      this.moreOpen.set(false);
+    }
+  }
+  toggleBackground(): void {
+    this.openGroup.set(null);
+    const next = !this.backgroundOpen();
+    this.backgroundOpen.set(next);
+    if (next) {
+      this.layersPanelOpen.set(false);
+      this.colorPickerOpen.set(false);
       this.moreOpen.set(false);
     }
   }
@@ -1316,6 +1254,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (next) {
       this.layersPanelOpen.set(false);
       this.colorPickerOpen.set(false);
+      this.backgroundOpen.set(false);
     }
   }
 
