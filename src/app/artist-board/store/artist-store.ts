@@ -68,6 +68,7 @@ export class ArtistStore {
   readonly pens = PENS;
 
   readonly dock: DockButton[] = [
+    { id: 'select', icon: 'select', tool: 'select' },
     { id: 'move', icon: 'move', tool: 'move' },
     { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true, covers: ['pen'] },
     { id: 'eraser', icon: 'eraser', tool: 'eraser', eraserOpts: true },
@@ -99,6 +100,8 @@ export class ArtistStore {
   readonly fontFamily = signal<'sans' | 'serif' | 'mono'>('sans');
   readonly fillTolerance = signal(32);
   readonly openGroup = signal<string | null>(null);
+  /** id of the object selected by the select tool, or null */
+  readonly selectedId = signal<string | null>(null);
 
   // ---- canvas background settings ----
   readonly bgKind = signal<'color' | 'texture' | 'image'>('color');
@@ -339,6 +342,8 @@ export class ArtistStore {
 
   cursorForTool(): string {
     switch (this.activeTool()) {
+      case 'select':
+        return 'default';
       case 'move':
         return 'grab';
       case 'text':

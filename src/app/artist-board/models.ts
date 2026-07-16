@@ -1,4 +1,5 @@
 export type ToolId =
+  | 'select'
   | 'move'
   | 'pen'
   | 'brush'
@@ -61,6 +62,7 @@ export const BLEND_MODES: { value: BlendMode; label: string }[] = [
 ];
 
 export const TOOLS: ToolDef[] = [
+  { id: 'select', name: 'Select', hint: 'Select, move, resize, rotate a shape or stroke', shortcut: 'S', usesFill: false, usesOutline: false, usesLineWidth: false },
   { id: 'move', name: 'Move / Pan', hint: 'Drag to pan the canvas', shortcut: 'V', usesFill: false, usesOutline: false, usesLineWidth: false },
   { id: 'pen', name: 'Pen', hint: 'Freehand pen stroke', shortcut: 'P', usesFill: false, usesOutline: true, usesLineWidth: true },
   { id: 'brush', name: 'Brush', hint: 'Natural-media art brushes', shortcut: 'B', usesFill: false, usesOutline: true, usesLineWidth: true },
@@ -111,6 +113,7 @@ export interface Point {
  * Coordinates are in css pixels.
  */
 export interface ShapeObject {
+  kind: 'shape';
   id: string;
   tool: 'line' | 'rect' | 'ellipse';
   a: Point;
@@ -120,7 +123,23 @@ export interface ShapeObject {
   strokeOpacity: number;
   fill: string;
   fillOpacity: number;
+  rotation: number; // radians, about the object's center
 }
+
+/** a retained freehand pen stroke (selectable, unlike textured brush strokes) */
+export interface PathObject {
+  kind: 'path';
+  id: string;
+  points: Point[];
+  stroke: string;
+  strokeWidth: number;
+  strokeOpacity: number;
+  penStyle: PenStyle;
+  rotation: number; // radians, about the object's bbox center
+}
+
+/** any retained vector object drawn above a layer's raster bitmap */
+export type CanvasObject = ShapeObject | PathObject;
 
 export interface Layer {
   id: string;
@@ -128,15 +147,15 @@ export interface Layer {
   visible: boolean;
   opacity: number; // 0..1
   blend: BlendMode;
-  canvas: HTMLCanvasElement; // raster content (pen / brush / eraser)
+  canvas: HTMLCanvasElement; // raster content (textured brush / eraser)
   ctx: CanvasRenderingContext2D;
-  shapes: ShapeObject[]; // retained vector shapes, drawn above the raster
+  objects: CanvasObject[]; // retained vector objects, drawn above the raster
 }
 
-/** full restorable state of a layer for undo/redo (raster + shapes) */
+/** full restorable state of a layer for undo/redo (raster + objects) */
 export interface LayerState {
   bitmap: ImageData;
-  shapes: ShapeObject[];
+  objects: CanvasObject[];
 }
 
 export interface HistoryEntry {

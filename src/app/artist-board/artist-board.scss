@@ -69,6 +69,65 @@
   touch-action: none;
   background: #fff;
 }
+/* ---------- selection / transform overlay ---------- */
+.sel-box {
+  position: absolute;
+  z-index: 35;
+  pointer-events: none;
+  transform-origin: center;
+}
+.sel-body {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--accent-2);
+  background: rgba(138, 123, 255, 0.06);
+  pointer-events: auto;
+  cursor: move;
+}
+.sel-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px;
+  background: #fff;
+  border: 1.5px solid var(--accent-2);
+  border-radius: 2px;
+  pointer-events: auto;
+}
+.sel-handle.tl { left: 0; top: 0; cursor: nwse-resize; }
+.sel-handle.tr { right: 0; top: 0; cursor: nesw-resize; }
+.sel-handle.bl { left: 0; bottom: 0; cursor: nesw-resize; }
+.sel-handle.br { right: 0; bottom: 0; cursor: nwse-resize; }
+.sel-rotate {
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  width: 13px;
+  height: 13px;
+  margin-left: -6.5px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid var(--accent-2);
+  pointer-events: auto;
+  cursor: grab;
+}
+.sel-del {
+  position: absolute;
+  right: -16px;
+  top: -36px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+}
+.sel-del .ico ::ng-deep svg { width: 15px; height: 15px; }
+
 .text-input {
   position: absolute;
   z-index: 30;

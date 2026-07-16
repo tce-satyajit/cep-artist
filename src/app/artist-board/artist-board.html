@@ -27,6 +27,28 @@
         placeholder="Type…"
       />
     }
+
+    <!-- ===== Selection / transform overlay ===== -->
+    @if (selBox(); as sb) {
+      <div
+        class="sel-box"
+        [style.left.px]="sb.left"
+        [style.top.px]="sb.top"
+        [style.width.px]="sb.w"
+        [style.height.px]="sb.h"
+        [style.transform]="'rotate(' + sb.angle + 'rad)'"
+      >
+        <div class="sel-body" (pointerdown)="startMove($event)"></div>
+        <div class="sel-handle tl" (pointerdown)="startResize($event)"></div>
+        <div class="sel-handle tr" (pointerdown)="startResize($event)"></div>
+        <div class="sel-handle bl" (pointerdown)="startResize($event)"></div>
+        <div class="sel-handle br" (pointerdown)="startResize($event)"></div>
+        <div class="sel-rotate" (pointerdown)="startRotate($event)"></div>
+        <button class="sel-del" (pointerdown)="$event.stopPropagation()" (click)="deleteSelected()" title="Delete">
+          <span class="ico" [innerHTML]="store.iconFor('trash')"></span>
+        </button>
+      </div>
+    }
   </div>
 
   <!-- ===== Bottom-center bar: undo/redo · color · Size + Opacity ===== -->

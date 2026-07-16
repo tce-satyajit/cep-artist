@@ -13,13 +13,24 @@ import { FormsModule } from '@angular/forms';
 import { paintBrushSegment } from './engine/brushes';
 import { floodFill, rgbaFromColor } from './engine/flood-fill';
 import { BgTexture, paintTexture } from './engine/textures';
-import { drawShapeObject, drawShapePath, pointInShape, ShapeTool } from './engine/shapes';
+import {
+  drawObject,
+  drawShapePath,
+  hitTestObject,
+  objectBounds,
+  objectCenter,
+  penWidthFor,
+  pointInShape,
+  ShapeTool,
+} from './engine/shapes';
 import { ArtistStore } from './store/artist-store';
 import {
   BlendMode,
+  CanvasObject,
   HistoryEntry,
   Layer,
   LayerState,
+  PathObject,
   Point,
   ShapeObject,
 } from './models';
@@ -120,7 +131,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       blend: 'source-over',
       canvas,
       ctx,
-      shapes: [],
+      objects: [],
     };
   }
 
@@ -186,7 +197,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (!layer) return;
     const before = this.snapshot(layer);
     layer.ctx.clearRect(0, 0, this.width, this.height);
-    layer.shapes = [];
+    layer.objects = [];
     const after = this.snapshot(layer);
     this.pushHistory({ layerId: layer.id, before, after });
     this.render();
@@ -211,7 +222,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       bx.globalCompositeOperation = 'source-over';
       bx.clearRect(0, 0, this.layerBuf.width, this.layerBuf.height);
       bx.drawImage(layer.canvas, 0, 0);
-      this.drawShapesToCtx(bx, layer.shapes);
+      this.drawObjectsToCtx(bx, layer.objects);
       // live preview of the in-progress freehand stroke, at its final opacity
       if (this.strokeBuffer && layer.id === activeId) {
         bx.globalAlpha = this.store.outlineOpacity();
@@ -228,8 +239,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   /** draw a layer's retained shapes onto a device-resolution context */
-  private drawShapesToCtx(ctx: CanvasRenderingContext2D, shapes: ShapeObject[]): void {
-    for (const s of shapes) drawShapeObject(ctx, s, this.dpr);
+  private drawObjectsToCtx(ctx: CanvasRenderingContext2D, objects: CanvasObject[]): void {
+    for (const o of objects) drawObject(ctx, o, this.dpr);
   }
 
   private paintCheckerboard(): void {
@@ -376,7 +387,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
         nl.opacity = l.opacity;
         nl.blend = l.blend;
         // shapes are resolution-independent objects — carry them across as-is
-        nl.shapes = l.shapes;
+        nl.objects = l.objects;
         if (l.name === 'Background') {
           // background is procedural — repaint fresh at the new size instead
           // of copying the old bitmap (which would leave the grown area blank)
@@ -418,6 +429,17 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (this.store.openGroup()) this.store.openGroup.set(null);
     const tool = this.store.activeTool();
     const p = this.toStagePoint(ev);
+
+    if (tool === 'select') {
+      // hit-test the active layer; select the topmost object and start moving
+      // it in one gesture (deselect on empty space).
+      const layer = this.store.activeLayer();
+      const hit = layer ? this.objectAt(layer, p) : null;
+      this.store.selectedId.set(hit?.id ?? null);
+      if (hit && layer) this.beginXform('move', layer, hit, ev);
+      this.activePointerId = null; // window listeners drive the transform
+      return;
+    }
 
     if (tool === 'move') {
       this.drawing = true;
@@ -532,7 +554,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     const mid = { x: (this.last.x + p.x) / 2, y: (this.last.y + p.y) / 2 };
     ctx.globalAlpha = 1;
     ctx.strokeStyle = this.store.outlineColor();
-    ctx.lineWidth = this.penWidthFor(this.last, p);
+    ctx.lineWidth = penWidthFor(this.store.penStyle(), this.store.lineWidth(), this.last, p);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -541,25 +563,6 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     ctx.stroke();
     this.prevMid = mid;
     this.last = p;
-  }
-
-  /** stroke width for the current pen nib over one segment a -> b */
-  private penWidthFor(a: Point, b: Point): number {
-    const w = this.store.lineWidth();
-    switch (this.store.penStyle()) {
-      case 'fine':
-        return Math.max(0.75, w * 0.5);
-      case 'bold':
-        return w * 1.7;
-      case 'fountain': {
-        // faster travel = thinner, like a flowing nib running out of ink
-        const len = Math.hypot(b.x - a.x, b.y - a.y);
-        const taper = Math.max(0.3, Math.min(1, 1 - len / 130));
-        return Math.max(0.75, w * taper);
-      }
-      default:
-        return w;
-    }
   }
 
   onPointerUp(ev: PointerEvent): void {
@@ -581,16 +584,14 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
     if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
       // shapes are retained as objects (not baked into the raster) so they can
-      // be hit-tested and filled as a whole later.
-      layer.shapes = [...layer.shapes, this.makeShape(tool, this.start, p)];
-    } else if (tool === 'pen' && this.sbctx) {
-      // finish the smoothed curve at the true last point (the last quadratic
-      // only reached the midpoint of the final pair of samples).
-      const ctx = this.sbctx;
-      ctx.beginPath();
-      ctx.moveTo(this.prevMid.x, this.prevMid.y);
-      ctx.lineTo(this.last.x, this.last.y);
-      ctx.stroke();
+      // be selected, filled, and transformed as a whole later.
+      layer.objects = [...layer.objects, this.makeShape(tool, this.start, p)];
+    } else if (tool === 'pen') {
+      // pen strokes are retained as path objects too (so they're selectable).
+      // Discard the live preview buffer so commitStroke doesn't bake it in.
+      layer.objects = [...layer.objects, this.makePath(this.points)];
+      this.strokeBuffer = null;
+      this.sbctx = null;
     }
     this.commitStroke(layer);
     this.drawing = false;
@@ -682,6 +683,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   // =========================================================================
   private makeShape(tool: ShapeTool, a: Point, b: Point): ShapeObject {
     return {
+      kind: 'shape',
       id: nextId(),
       tool,
       a: { ...a },
@@ -691,15 +693,37 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       strokeOpacity: this.store.outlineOpacity(),
       fill: this.store.fillColor(),
       fillOpacity: this.store.fillOpacity(),
+      rotation: 0,
+    };
+  }
+
+  private makePath(points: Point[]): PathObject {
+    return {
+      kind: 'path',
+      id: nextId(),
+      points: points.map((p) => ({ ...p })),
+      stroke: this.store.outlineColor(),
+      strokeWidth: this.store.lineWidth(),
+      strokeOpacity: this.store.outlineOpacity(),
+      penStyle: this.store.penStyle(),
+      rotation: 0,
     };
   }
 
   /** topmost fillable shape (rect/ellipse) under the point, or null */
   private hitTestShape(layer: Layer, p: Point): ShapeObject | null {
-    for (let i = layer.shapes.length - 1; i >= 0; i--) {
-      const s = layer.shapes[i];
-      if (s.tool === 'line') continue; // lines enclose no region to fill
-      if (pointInShape(s, p)) return s;
+    for (let i = layer.objects.length - 1; i >= 0; i--) {
+      const o = layer.objects[i];
+      if (o.kind !== 'shape' || o.tool === 'line') continue; // no fillable region
+      if (pointInShape(o, p)) return o;
+    }
+    return null;
+  }
+
+  /** topmost object under the point (for the select tool), or null */
+  private objectAt(layer: Layer, p: Point): CanvasObject | null {
+    for (let i = layer.objects.length - 1; i >= 0; i--) {
+      if (hitTestObject(layer.objects[i], p)) return layer.objects[i];
     }
     return null;
   }
@@ -777,17 +801,21 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   private snapshot(layer: Layer): LayerState {
     return {
       bitmap: layer.ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height),
-      shapes: this.cloneShapes(layer.shapes),
+      objects: this.cloneObjects(layer.objects),
     };
   }
 
-  private cloneShapes(shapes: ShapeObject[]): ShapeObject[] {
-    return shapes.map((s) => ({ ...s, a: { ...s.a }, b: { ...s.b } }));
+  private cloneObjects(objects: CanvasObject[]): CanvasObject[] {
+    return objects.map((o) =>
+      o.kind === 'shape'
+        ? { ...o, a: { ...o.a }, b: { ...o.b } }
+        : { ...o, points: o.points.map((p) => ({ ...p })) },
+    );
   }
 
   private restore(layer: Layer, state: LayerState): void {
     layer.ctx.putImageData(state.bitmap, 0, 0);
-    layer.shapes = this.cloneShapes(state.shapes);
+    layer.objects = this.cloneObjects(state.objects);
   }
 
   private commitStroke(layer: Layer): void {
@@ -861,7 +889,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       bx.globalCompositeOperation = 'source-over';
       bx.clearRect(0, 0, this.layerBuf.width, this.layerBuf.height);
       bx.drawImage(layer.canvas, 0, 0);
-      this.drawShapesToCtx(bx, layer.shapes);
+      this.drawObjectsToCtx(bx, layer.objects);
 
       octx.globalAlpha = layer.opacity;
       octx.globalCompositeOperation = layer.blend;
@@ -880,7 +908,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       } else {
         layer.ctx.clearRect(0, 0, this.width, this.height);
       }
-      layer.shapes = [];
+      layer.objects = [];
     }
     this.undoStack = [];
     this.redoStack = [];
@@ -925,13 +953,172 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
   @HostListener('window:pointermove', ['$event'])
   onWindowPointerMove(ev: PointerEvent): void {
+    if (this.xform) {
+      this.applyXform(this.toStagePoint(ev));
+      return;
+    }
     if (!this.store.activeSlider()) return;
     this.applySlider(ev.clientX);
   }
   @HostListener('window:pointerup')
   onWindowPointerUp(): void {
+    if (this.xform) this.commitXform();
     this.store.activeSlider.set(null);
     this.sliderRect = null;
+  }
+
+  // =========================================================================
+  // Select tool: transform (move / resize / rotate / delete)
+  // =========================================================================
+  private xform: {
+    mode: 'move' | 'resize' | 'rotate';
+    layer: Layer;
+    obj: CanvasObject;
+    center: Point;
+    angle: number;
+    startPointer: Point;
+    origShape?: { a: Point; b: Point };
+    origPoints?: Point[];
+    before: LayerState;
+    moved: boolean;
+  } | null = null;
+  /** bumped on every transform step so the overlay box re-renders (CD tick) */
+  readonly xformTick = signal(0);
+
+  /** the currently selected object and the layer holding it */
+  selectedObject(): { layer: Layer; obj: CanvasObject } | null {
+    const id = this.store.selectedId();
+    if (!id) return null;
+    for (const layer of this.store.layers()) {
+      const obj = layer.objects.find((o) => o.id === id);
+      if (obj) return { layer, obj };
+    }
+    return null;
+  }
+
+  /** stage-relative box (px) for the selection overlay, or null */
+  selBox(): { left: number; top: number; w: number; h: number; angle: number } | null {
+    this.xformTick(); // reactive dependency so drags reposition the box
+    if (this.store.activeTool() !== 'select') return null;
+    const sel = this.selectedObject();
+    if (!sel || !this.board) return null;
+    const b = objectBounds(sel.obj);
+    const z = this.store.zoom();
+    const boardRect = this.board.getBoundingClientRect();
+    const stageRect = this.stageRef.nativeElement.getBoundingClientRect();
+    return {
+      left: boardRect.left - stageRect.left + b.x * z,
+      top: boardRect.top - stageRect.top + b.y * z,
+      w: b.w * z,
+      h: b.h * z,
+      angle: sel.obj.rotation,
+    };
+  }
+
+  startMove(ev: PointerEvent): void {
+    const sel = this.selectedObject();
+    if (sel) this.beginXform('move', sel.layer, sel.obj, ev);
+  }
+  startResize(ev: PointerEvent): void {
+    const sel = this.selectedObject();
+    if (sel) this.beginXform('resize', sel.layer, sel.obj, ev);
+  }
+  startRotate(ev: PointerEvent): void {
+    const sel = this.selectedObject();
+    if (sel) this.beginXform('rotate', sel.layer, sel.obj, ev);
+  }
+
+  deleteSelected(): void {
+    const sel = this.selectedObject();
+    if (!sel) return;
+    const before = this.snapshot(sel.layer);
+    sel.layer.objects = sel.layer.objects.filter((o) => o.id !== sel.obj.id);
+    const after = this.snapshot(sel.layer);
+    this.pushHistory({ layerId: sel.layer.id, before, after });
+    this.store.selectedId.set(null);
+    this.render();
+  }
+
+  private beginXform(mode: 'move' | 'resize' | 'rotate', layer: Layer, obj: CanvasObject, ev: PointerEvent): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.xform = {
+      mode,
+      layer,
+      obj,
+      center: objectCenter(obj),
+      angle: obj.rotation,
+      startPointer: this.toStagePoint(ev),
+      origShape: obj.kind === 'shape' ? { a: { ...obj.a }, b: { ...obj.b } } : undefined,
+      origPoints: obj.kind === 'path' ? obj.points.map((p) => ({ ...p })) : undefined,
+      before: this.snapshot(layer),
+      moved: false,
+    };
+  }
+
+  private toLocal(p: Point, c: Point, angle: number): Point {
+    if (!angle) return p;
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    const dx = p.x - c.x;
+    const dy = p.y - c.y;
+    return { x: c.x + dx * cos - dy * sin, y: c.y + dx * sin + dy * cos };
+  }
+
+  private applyXform(pointer: Point): void {
+    const x = this.xform;
+    if (!x) return;
+    x.moved = true;
+    const o = x.obj;
+
+    if (x.mode === 'rotate') {
+      o.rotation = Math.atan2(pointer.y - x.center.y, pointer.x - x.center.x) + Math.PI / 2;
+    } else if (x.mode === 'move') {
+      const dx = pointer.x - x.startPointer.x;
+      const dy = pointer.y - x.startPointer.y;
+      if (o.kind === 'shape' && x.origShape) {
+        o.a = { x: x.origShape.a.x + dx, y: x.origShape.a.y + dy };
+        o.b = { x: x.origShape.b.x + dx, y: x.origShape.b.y + dy };
+      } else if (o.kind === 'path' && x.origPoints) {
+        o.points = x.origPoints.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+      }
+    } else {
+      // resize: scale geometry about the center, symmetric, in the local frame
+      const local = this.toLocal(pointer, x.center, x.angle);
+      const halfW = Math.max(4, Math.abs(local.x - x.center.x));
+      const halfH = Math.max(4, Math.abs(local.y - x.center.y));
+      const orig = x.origShape
+        ? { hw: Math.abs(x.origShape.b.x - x.origShape.a.x) / 2, hh: Math.abs(x.origShape.b.y - x.origShape.a.y) / 2 }
+        : this.pointsHalfExtents(x.origPoints!, x.center);
+      const sx = orig.hw > 0.01 ? halfW / orig.hw : 1;
+      const sy = orig.hh > 0.01 ? halfH / orig.hh : 1;
+      if (x.origShape && o.kind === 'shape') {
+        o.a = { x: x.center.x + (x.origShape.a.x - x.center.x) * sx, y: x.center.y + (x.origShape.a.y - x.center.y) * sy };
+        o.b = { x: x.center.x + (x.origShape.b.x - x.center.x) * sx, y: x.center.y + (x.origShape.b.y - x.center.y) * sy };
+      } else if (x.origPoints && o.kind === 'path') {
+        o.points = x.origPoints.map((p) => ({ x: x.center.x + (p.x - x.center.x) * sx, y: x.center.y + (p.y - x.center.y) * sy }));
+      }
+    }
+    this.xformTick.update((v) => v + 1);
+    this.render();
+  }
+
+  private pointsHalfExtents(points: Point[], c: Point): { hw: number; hh: number } {
+    let hw = 0;
+    let hh = 0;
+    for (const p of points) {
+      hw = Math.max(hw, Math.abs(p.x - c.x));
+      hh = Math.max(hh, Math.abs(p.y - c.y));
+    }
+    return { hw, hh };
+  }
+
+  private commitXform(): void {
+    const x = this.xform;
+    this.xform = null;
+    if (!x || !x.moved) return;
+    const after = this.snapshot(x.layer);
+    this.pushHistory({ layerId: x.layer.id, before: x.before, after });
   }
 
   // ---- keyboard shortcuts ----
@@ -951,6 +1138,18 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
       ev.preventDefault();
       this.redo();
       return;
+    }
+    // select tool: delete removes the selection, escape deselects
+    if (this.store.activeTool() === 'select' && this.store.selectedId()) {
+      if (ev.key === 'Delete' || ev.key === 'Backspace') {
+        ev.preventDefault();
+        this.deleteSelected();
+        return;
+      }
+      if (ev.key === 'Escape') {
+        this.store.selectedId.set(null);
+        return;
+      }
     }
     if (ev.key === '[') this.store.lineWidth.update((w) => Math.max(1, w - 2));
     if (ev.key === ']') this.store.lineWidth.update((w) => Math.min(80, w + 2));
