@@ -28,8 +28,25 @@
     }
   </div>
 
-  <!-- ===== Bottom-right: horizontal Size + Opacity sliders ===== -->
-  <div class="hsliders">
+  <!-- ===== Bottom-center bar: undo/redo · color · Size + Opacity ===== -->
+  <div class="bottombar">
+    <div class="bb-group">
+      <button class="tb" (click)="undo()" [disabled]="!canUndo()" title="Undo (⌘Z)">
+        <span class="ico" [innerHTML]="iconFor('undo')"></span>
+      </button>
+      <button class="tb" (click)="redo()" [disabled]="!canRedo()" title="Redo (⌘⇧Z)">
+        <span class="ico" [innerHTML]="iconFor('redo')"></span>
+      </button>
+    </div>
+
+    <div class="bb-divider"></div>
+
+    <button class="tb swatch-btn" [class.active]="colorPickerOpen()" (click)="toggleColor()" title="Color">
+      <span class="swatch-chip" [style.background]="outlineColor()"></span>
+    </button>
+
+    <div class="bb-divider"></div>
+
     <div class="hslider" [class.on]="activeSlider() === 'size'">
       <span class="hcap">Size</span>
       <div class="htrack" (pointerdown)="sliderDown('size', $event)">
@@ -78,6 +95,21 @@
                 </button>
               }
             </div>
+          } @else if (b.penStyles) {
+            <!-- pen options: the nibs -->
+            <div class="tdflyout styles">
+              @for (s of pens; track s.id) {
+                <button
+                  class="brush-card"
+                  [class.active]="penStyle() === s.id"
+                  (click)="pickPenStyle(s.id)"
+                  [title]="s.hint"
+                >
+                  <span class="brush-name">{{ s.name }}</span>
+                  <span class="brush-hint">{{ s.hint }}</span>
+                </button>
+              }
+            </div>
           } @else {
             <!-- shape variants -->
             <div class="tdflyout">
@@ -101,18 +133,6 @@
   <!-- ===== Top bar ===== -->
   <div class="topbar">
     <div class="tb-group">
-      <button class="tb" (click)="undo()" [disabled]="!canUndo()" title="Undo (⌘Z)">
-        <span class="ico" [innerHTML]="iconFor('undo')"></span>
-      </button>
-      <button class="tb" (click)="redo()" [disabled]="!canRedo()" title="Redo (⌘⇧Z)">
-        <span class="ico" [innerHTML]="iconFor('redo')"></span>
-      </button>
-    </div>
-
-    <div class="tb-group">
-      <button class="tb swatch-btn" (click)="toggleColor()" title="Color">
-        <span class="swatch-chip" [style.background]="outlineColor()"></span>
-      </button>
       <button class="tb" [class.active]="settingsOpen()" (click)="toggleSettings()" title="Brush studio">
         <span class="ico" [innerHTML]="iconFor('settings')"></span>
       </button>
@@ -174,6 +194,10 @@
       @if (activeTool() === 'brush') {
         <div class="sheet-sub">Brush style · {{ brushStyleName() }}</div>
         <div class="sheet-hint">Change styles from the brush's dock submenu.</div>
+      }
+      @if (activeTool() === 'pen') {
+        <div class="sheet-sub">Pen style · {{ penStyleName() }}</div>
+        <div class="sheet-hint">Change nibs from the pen's dock submenu.</div>
       }
 
       <div class="sheet-sub">Blend</div>

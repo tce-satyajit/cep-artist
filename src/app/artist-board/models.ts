@@ -90,6 +90,15 @@ export const BRUSHES: { id: BrushStyle; name: string; hint: string }[] = [
   { id: 'pencil', name: 'Pencil', hint: 'Fine sketchy graphite' },
 ];
 
+export type PenStyle = 'fine' | 'medium' | 'bold' | 'fountain';
+
+export const PENS: { id: PenStyle; name: string; hint: string }[] = [
+  { id: 'fine', name: 'Fine', hint: 'Thin, crisp technical line' },
+  { id: 'medium', name: 'Medium', hint: 'Standard round pen' },
+  { id: 'bold', name: 'Bold', hint: 'Thick marker-weight stroke' },
+  { id: 'fountain', name: 'Fountain', hint: 'Speed-tapered flowing nib' },
+];
+
 export interface Layer {
   id: string;
   name: string;

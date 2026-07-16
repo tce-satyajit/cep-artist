@@ -91,34 +91,57 @@
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
 }
 
-/* ---------- bottom-right horizontal sliders ---------- */
-.hsliders {
+/* ---------- bottom-center bar ---------- */
+.bottombar {
   position: absolute;
-  right: 92px;
-  bottom: 20px;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
   z-index: 40;
   display: flex;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 16px;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  max-width: calc(100% - 120px);
   @extend %glass;
+}
+.bottombar .tb {
+  height: 34px;
+  min-width: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+}
+.bottombar .swatch-chip {
+  width: 18px;
+  height: 18px;
+}
+.bb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.bb-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line-strong);
 }
 .hslider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .hcap {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--ink-dim);
-  min-width: 30px;
 }
 .htrack {
   position: relative;
-  width: 130px;
-  height: 24px;
+  width: 96px;
+  height: 20px;
   display: flex;
   align-items: center;
   cursor: pointer;
@@ -147,8 +170,8 @@
 .hthumb {
   position: absolute;
   transform: translateX(-50%);
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -158,10 +181,10 @@
   transform: translateX(-50%) scale(1.15);
 }
 .hval {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--ink);
-  min-width: 40px;
+  min-width: 34px;
   text-align: right;
 }
 
@@ -274,7 +297,7 @@
   left: 0;
   right: 0;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 16px;
   z-index: 45;
   pointer-events: none;
@@ -377,7 +400,19 @@
 }
 
 .popover.color {
-  width: 210px;
+  width: 240px;
+  top: auto;
+  right: auto;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* fade only — the base pop keyframe animates translateY and would fight the
+     horizontal centering transform. */
+  animation: popfade 0.14s ease;
+}
+@keyframes popfade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .color-row {
   display: flex;
@@ -652,18 +687,18 @@ input[type='range']::-webkit-slider-thumb {
     height: 42px;
   }
   .sheet,
-  .popover {
+  .popover:not(.color) {
     right: 78px;
     left: 10px;
     width: auto;
   }
-  .hsliders {
-    right: 78px;
+  .bottombar {
     left: 10px;
+    right: 10px;
+    transform: none;
     bottom: 14px;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 6px 14px;
+    max-width: none;
+    gap: 6px 12px;
   }
   .htrack {
     width: 90px;

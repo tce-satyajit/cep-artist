@@ -19,6 +19,8 @@ import {
   BrushStyle,
   HistoryEntry,
   Layer,
+  PENS,
+  PenStyle,
   Point,
   TOOLS,
   ToolDef,
@@ -77,10 +79,12 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   readonly tools = TOOLS;
   readonly blendModes = BLEND_MODES;
   readonly brushes = BRUSHES;
+  readonly pens = PENS;
 
   /**
    * Dock buttons. Each is its own tool. A button may carry a submenu holding
-   * that tool's OPTIONS — the Brush exposes its styles, Shapes its variants.
+   * that tool's OPTIONS — the Pen exposes its nibs, the Brush its styles,
+   * Shapes their variants.
    */
   readonly dock: {
     id: string;
@@ -88,9 +92,10 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     tool: ToolId;
     members?: ToolId[]; // shape variants (each is its own tool)
     brushStyles?: boolean; // submenu shows the brush styles
+    penStyles?: boolean; // submenu shows the pen styles
   }[] = [
     { id: 'move', icon: 'move', tool: 'move' },
-    { id: 'pen', icon: 'pen', tool: 'pen' },
+    { id: 'pen', icon: 'pen', tool: 'pen', penStyles: true },
     { id: 'brush', icon: 'brush', tool: 'brush', brushStyles: true },
     { id: 'eraser', icon: 'eraser', tool: 'eraser' },
     { id: 'shapes', icon: 'rect', tool: 'rect', members: ['line', 'rect', 'ellipse'] },
@@ -111,6 +116,7 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   readonly blend = signal<BlendMode>('source-over');
   readonly fontSize = signal(42);
   readonly brushStyle = signal<BrushStyle>('ink');
+  readonly penStyle = signal<PenStyle>('medium');
 
   readonly layers = signal<Layer[]>([]);
   readonly activeLayerId = signal<string>('');
@@ -155,6 +161,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   private drawing = false;
   private start: Point = { x: 0, y: 0 };
   private last: Point = { x: 0, y: 0 };
+  // trailing midpoint of the smoothed pen curve (quadratic-through-midpoints)
+  private prevMid: Point = { x: 0, y: 0 };
   private points: Point[] = [];
   private snapshotBefore: ImageData | null = null;
 
@@ -430,9 +438,11 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
     if (tool === 'pen' || tool === 'brush') {
       this.initStrokeBuffer();
+      this.prevMid = p;
       this.strokeSegment(layer, p, p);
       this.render();
     } else if (tool === 'eraser') {
+      this.prevMid = p;
       this.strokeSegment(layer, p, p);
       this.render();
     }
@@ -453,17 +463,77 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
     const layer = this.activeLayer();
     if (!layer) return;
-    const p = this.toStagePoint(ev);
 
     if (tool === 'pen' || tool === 'brush' || tool === 'eraser') {
-      this.points.push(p);
-      this.strokeSegment(layer, this.last, p);
-      this.last = p;
+      // Replay every sample the device captured between frames — browsers
+      // coalesce these into one pointermove, so reading only ev.clientX would
+      // throw away most of the stroke and leave long, angular segments.
+      const batch = ev.getCoalescedEvents?.() ?? [];
+      const samples = batch.length ? batch : [ev];
+      for (const e of samples) {
+        this.freehandSample(layer, this.toStagePoint(e));
+      }
       this.render();
     } else if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
       // live preview drawn straight onto the composited board
+      const p = this.toStagePoint(ev);
       this.render();
       this.drawShape(this.bctx, tool, this.start, p, this.dpr);
+    }
+  }
+
+  /** advance a freehand stroke by one sample point */
+  private freehandSample(layer: Layer, p: Point): void {
+    this.points.push(p);
+    if (this.activeTool() === 'pen') {
+      this.penSmoothTo(p);
+    } else {
+      // brush + eraser keep their direction-dependent straight segments,
+      // which are now fed the dense coalesced samples for smoother results.
+      this.strokeSegment(layer, this.last, p);
+      this.last = p;
+    }
+  }
+
+  /**
+   * Smooth pen stroke: draw a quadratic curve from the previous midpoint to the
+   * new midpoint, using the raw sample as the control point. Curving through the
+   * midpoints of consecutive samples turns the jagged sample polyline into a
+   * continuous line with no visible corners.
+   */
+  private penSmoothTo(p: Point): void {
+    const ctx = this.sbctx;
+    if (!ctx) return;
+    const mid = { x: (this.last.x + p.x) / 2, y: (this.last.y + p.y) / 2 };
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = this.outlineColor();
+    ctx.lineWidth = this.penWidthFor(this.last, p);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(this.prevMid.x, this.prevMid.y);
+    ctx.quadraticCurveTo(this.last.x, this.last.y, mid.x, mid.y);
+    ctx.stroke();
+    this.prevMid = mid;
+    this.last = p;
+  }
+
+  /** stroke width for the current pen nib over one segment a -> b */
+  private penWidthFor(a: Point, b: Point): number {
+    const w = this.lineWidth();
+    switch (this.penStyle()) {
+      case 'fine':
+        return Math.max(0.75, w * 0.5);
+      case 'bold':
+        return w * 1.7;
+      case 'fountain': {
+        // faster travel = thinner, like a flowing nib running out of ink
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        const taper = Math.max(0.3, Math.min(1, 1 - len / 130));
+        return Math.max(0.75, w * taper);
+      }
+      default:
+        return w;
     }
   }
 
@@ -486,6 +556,14 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
 
     if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
       this.drawShape(layer.ctx, tool, this.start, p, 1);
+    } else if (tool === 'pen' && this.sbctx) {
+      // finish the smoothed curve at the true last point (the last quadratic
+      // only reached the midpoint of the final pair of samples).
+      const ctx = this.sbctx;
+      ctx.beginPath();
+      ctx.moveTo(this.prevMid.x, this.prevMid.y);
+      ctx.lineTo(this.last.x, this.last.y);
+      ctx.stroke();
     }
     this.commitStroke(layer);
     this.drawing = false;
@@ -1002,8 +1080,8 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   }
 
   // ---- tool dock + option submenus ----
-  hasSubmenu(b: { members?: ToolId[]; brushStyles?: boolean }): boolean {
-    return !!b.members || !!b.brushStyles;
+  hasSubmenu(b: { members?: ToolId[]; brushStyles?: boolean; penStyles?: boolean }): boolean {
+    return !!b.members || !!b.brushStyles || !!b.penStyles;
   }
   buttonActive(b: { tool: ToolId; members?: ToolId[] }): boolean {
     return b.members ? b.members.includes(this.activeTool()) : this.activeTool() === b.tool;
@@ -1012,7 +1090,13 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     if (b.members) return b.members.includes(this.activeTool()) ? this.activeTool() : this.lastShape;
     return b.icon;
   }
-  onDockClick(b: { id: string; tool: ToolId; members?: ToolId[]; brushStyles?: boolean }): void {
+  onDockClick(b: {
+    id: string;
+    tool: ToolId;
+    members?: ToolId[];
+    brushStyles?: boolean;
+    penStyles?: boolean;
+  }): void {
     // tapping the ACTIVE tool that has options opens its submenu
     if (this.hasSubmenu(b) && this.buttonActive(b)) {
       this.openGroup.set(this.openGroup() === b.id ? null : b.id);
@@ -1031,11 +1115,19 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
     this.activeTool.set('brush');
     this.openGroup.set(null);
   }
+  pickPenStyle(id: PenStyle): void {
+    this.penStyle.set(id);
+    this.activeTool.set('pen');
+    this.openGroup.set(null);
+  }
   toolName(id: ToolId): string {
     return this.tools.find((t) => t.id === id)?.name ?? id;
   }
   brushStyleName(): string {
     return this.brushes.find((b) => b.id === this.brushStyle())?.name ?? '';
+  }
+  penStyleName(): string {
+    return this.pens.find((p) => p.id === this.penStyle())?.name ?? '';
   }
 
   toggleSettings(): void {
