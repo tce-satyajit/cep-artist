@@ -130,34 +130,52 @@
         </button>
 
         @if (store.openGroup() === b.id) {
-          <!-- one common submenu system for every dock button -->
-          <div class="tdflyout styles">
-            @for (sec of store.submenuFor(b); track sec.title) {
-              <div class="flyout-head">{{ sec.title }}</div>
-              <div class="style-grid">
-                @for (it of sec.items; track it.id) {
-                  <button
-                    class="brush-card"
-                    [class.active]="it.active"
-                    (click)="store.pickSubItem(it)"
-                    [title]="it.hint"
-                  >
-                    <span class="brush-name">{{ it.name }}</span>
-                    <span class="brush-hint">{{ it.hint }}</span>
+          @if (b.brushStyles) {
+            <!-- Procreate-style library: categories left, previews right -->
+            <div class="tdflyout brush-lib">
+              <div class="lib-cats">
+                <button [class.on]="store.brushCat() === 'pens'" (click)="store.brushCat.set('pens')">Pens</button>
+                <button [class.on]="store.brushCat() === 'brushes'" (click)="store.brushCat.set('brushes')">Brushes</button>
+              </div>
+              <div class="lib-list">
+                @for (it of store.libItems(store.brushCat()); track it.id) {
+                  <button class="lib-item" [class.on]="it.active" (click)="store.pickSubItem(it)" [title]="it.hint">
+                    <span class="lib-name">{{ it.name }}</span>
+                    <img class="lib-prev" [src]="strokePreview(it.kind === 'pen' ? 'pen' : 'brush', it.id)" alt="" />
                   </button>
                 }
               </div>
-            }
-            @if (store.menuHasFillOpacity(b)) {
-              <div class="flyout-head">Fill opacity · {{ store.fillOpacity() * 100 | number:'1.0-0' }}%</div>
-              <input
-                class="flyout-range"
-                type="range" min="0" max="100"
-                [value]="store.fillOpacity() * 100"
-                (input)="store.onFillOpacity($any($event.target).value)"
-              />
-            }
-          </div>
+            </div>
+          } @else {
+            <!-- common card submenu for the other dock buttons -->
+            <div class="tdflyout styles">
+              @for (sec of store.submenuFor(b); track sec.title) {
+                <div class="flyout-head">{{ sec.title }}</div>
+                <div class="style-grid">
+                  @for (it of sec.items; track it.id) {
+                    <button
+                      class="brush-card"
+                      [class.active]="it.active"
+                      (click)="store.pickSubItem(it)"
+                      [title]="it.hint"
+                    >
+                      <span class="brush-name">{{ it.name }}</span>
+                      <span class="brush-hint">{{ it.hint }}</span>
+                    </button>
+                  }
+                </div>
+              }
+              @if (store.menuHasFillOpacity(b)) {
+                <div class="flyout-head">Fill opacity · {{ store.fillOpacity() * 100 | number:'1.0-0' }}%</div>
+                <input
+                  class="flyout-range"
+                  type="range" min="0" max="100"
+                  [value]="store.fillOpacity() * 100"
+                  (input)="store.onFillOpacity($any($event.target).value)"
+                />
+              }
+            </div>
+          }
         }
       </div>
     }

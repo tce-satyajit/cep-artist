@@ -14,6 +14,7 @@ import { paintBrushSegment } from './engine/brushes';
 import { BgTexture, paintTexture } from './engine/textures';
 import {
   drawObject,
+  drawPathPoints,
   drawShapePath,
   hitTestObject,
   objectBounds,
@@ -24,10 +25,12 @@ import {
 import { ArtistStore } from './store/artist-store';
 import {
   BlendMode,
+  BrushStyle,
   CanvasObject,
   HistoryEntry,
   Layer,
   LayerState,
+  PenStyle,
   Point,
   ShapeObject,
 } from './models';
@@ -238,6 +241,57 @@ export class ArtistBoard implements AfterViewInit, OnDestroy {
   /** draw a layer's retained shapes onto a device-resolution context */
   private drawObjectsToCtx(ctx: CanvasRenderingContext2D, objects: CanvasObject[]): void {
     for (const o of objects) drawObject(ctx, o, this.dpr);
+  }
+
+  // =========================================================================
+  // Brush/pen library stroke previews (rendered once, cached as data URLs)
+  // =========================================================================
+  private previewCache = new Map<string, string>();
+
+  strokePreview(kind: 'pen' | 'brush', id: string): string {
+    const key = kind + ':' + id;
+    let url = this.previewCache.get(key);
+    if (!url) {
+      url = this.renderPreview(kind, id);
+      this.previewCache.set(key, url);
+    }
+    return url;
+  }
+
+  private renderPreview(kind: 'pen' | 'brush', id: string): string {
+    const w = 220;
+    const h = 46;
+    const dpr = 2;
+    const c = document.createElement('canvas');
+    c.width = w * dpr;
+    c.height = h * dpr;
+    const ctx = c.getContext('2d')!;
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const color = '#ededf0';
+    const width = 13;
+    // a tapered S-curve sample, thin at the left, fuller in the middle
+    const pts: Point[] = [];
+    const n = 64;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = 10 + t * (w - 20);
+      const y = h / 2 + Math.sin(t * Math.PI * 1.6) * (h * 0.26);
+      pts.push({ x, y });
+    }
+    if (kind === 'pen') {
+      drawPathPoints(ctx, pts, color, width, id as PenStyle);
+    } else {
+      for (let i = 1; i < pts.length; i++) {
+        paintBrushSegment(ctx, id as BrushStyle, pts[i - 1], pts[i], {
+          color,
+          width,
+          nibAngle: this.nibAngle,
+        });
+      }
+    }
+    return c.toDataURL();
   }
 
   private paintCheckerboard(): void {

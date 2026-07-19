@@ -99,6 +99,28 @@ export class ArtistStore {
   readonly openGroup = signal<string | null>(null);
   /** id of the object selected by the select tool, or null */
   readonly selectedId = signal<string | null>(null);
+  /** active category in the brush/pen library submenu */
+  readonly brushCat = signal<'pens' | 'brushes'>('brushes');
+
+  /** library items (with preview kind + active state) for a category */
+  libItems(cat: 'pens' | 'brushes'): SubItem[] {
+    if (cat === 'pens') {
+      return this.pens.map((p) => ({
+        id: p.id,
+        name: p.name,
+        hint: p.hint,
+        kind: 'pen' as const,
+        active: this.activeTool() === 'pen' && this.penStyle() === p.id,
+      }));
+    }
+    return this.brushes.map((s) => ({
+      id: s.id,
+      name: s.name,
+      hint: s.hint,
+      kind: 'brush' as const,
+      active: this.activeTool() === 'brush' && this.brushStyle() === s.id,
+    }));
+  }
 
   // ---- canvas background settings ----
   readonly bgKind = signal<'color' | 'texture' | 'image'>('color');

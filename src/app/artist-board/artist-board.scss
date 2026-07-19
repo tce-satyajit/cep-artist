@@ -407,6 +407,91 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
+
+/* ---- Procreate-style brush/pen library ---- */
+.tdflyout.brush-lib {
+  display: flex;
+  width: 380px;
+  max-height: min(560px, calc(100vh - 32px));
+  padding: 0;
+  overflow: hidden;
+  background: rgba(24, 24, 27, 0.92);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  color: #ededf0;
+}
+.tdflyout.brush-lib::after {
+  background: rgba(24, 24, 27, 0.92);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.lib-cats {
+  flex: 0 0 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.28);
+}
+.lib-cats button {
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #b4b4bb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lib-cats button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.lib-cats button.on {
+  background: var(--accent-2);
+  color: #fff;
+}
+.lib-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
+}
+.lib-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: #ededf0;
+  cursor: pointer;
+}
+.lib-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.lib-item.on {
+  background: var(--accent-2);
+}
+.lib-name {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.lib-prev {
+  width: 100%;
+  height: 40px;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
 .flyout-head {
   font-size: 11px;
   letter-spacing: 0.06em;
